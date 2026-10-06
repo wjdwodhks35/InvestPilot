@@ -139,3 +139,6 @@ def lab(): return FileResponse(static/"lab.html")
 
 @app.get('/lab/comparison')
 def lab_comparison(): return FileResponse(static/'comparison.html')
+
+from app.auth import AuthSettings, AuthStore, install_auth
+install_auth(app, AuthStore(os.getenv('INVESTPILOT_AUTH_DB','data/auth.db')), AuthSettings.environment(), static)
