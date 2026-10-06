@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "scope": "research_only",
+  "budget_bytes": 5000000000,
+  "reserve_bytes": 750000000,
+  "root_folder_id": "",
+  "root_url": "",
+  "folders": {
+    "prices": "",
+    "news": "",
+    "features": "",
+    "models": "",
+    "reports": ""
+  },
+  "category_limits_bytes": {
+    "prices": 250000000,
+    "news": 2000000000,
+    "features": 1000000000,
+    "models": 750000000,
+    "reports": 250000000
+  },
+  "historical_data_collected": false
+}

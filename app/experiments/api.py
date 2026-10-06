@@ -61,3 +61,9 @@ def inspect_dataset(data: Dataset):
                 warnings=['이 검사는 학습 또는 확률 산출이 아닙니다.',
                           '원본 뉴스의 당시 버전과 실제 공개·수신 시각은 별도로 확인해야 합니다.',
                           '횡보 기준, 예측 기간, 시간순 분할, 확률 보정은 학습 구현 시 설정합니다.'])
+
+@router.get('/storage')
+def storage_plan():
+    from app.experiments.storage import config
+    settings=config()
+    return {**settings,'usage_verified':False,'message':'저장 계획입니다. 실시간 사용량은 Drive 인증 후 CLI로 조회하세요.'}

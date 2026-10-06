@@ -106,3 +106,22 @@ RSS 수집 URL은 운영자가 `.env`에 설정하며 웹 API로 임의 URL을 �
 뉴스 발행시각이 판단 시각보다 늦거나 시간대가 없으면 거부합니다. 종목별 시간 정렬, 중복, 가격/거래량 유효성을 검사합니다.
 검사 데이터는 저장되지 않으며 주문 엔진·실계좌·가상 잔고를 변경하지 않습니다.
 실험 코드는 `app/experiments/`, API는 `/api/experiments/*`에 분리돼 있습니다.
+
+## Google Drive 실험 저장소 (총 5GB 상한)
+
+공개 저장 정책은 `config/model_lab_storage.json`에 있습니다. 개인 폴더 ID는 Git에 저장하지 않습니다. Drive의 `storage-policy.json`을 내려받아 Git 제외 경로 `data/model_lab_storage.json`에 저장하세요. Drive 공간을 예약하거나 빈 파일로 채우지 않습니다.
+가격 0.25GB, 뉴스 2GB, 특징 데이터 1GB, 모델 0.75GB, 보고서 0.25GB, 예비 0.75GB로 계획합니다.
+실제 과거 데이터는 아직 수집하지 않았습니다. 저장 정책과 폴더를 준비한 상태입니다.
+
+ChatGPT의 Google 연결은 로컬 프로그램으로 전달되지 않습니다. 로컬 CLI를 사용하려면 별도의 Google OAuth access token을 `.env`의 `GOOGLE_DRIVE_ACCESS_TOKEN`에 설정해야 합니다.
+키를 Git에 저장하지 마세요. 토큰 자동 갱신은 아직 미구현입니다.
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.drive_storage usage
+.\.venv\Scripts\python.exe -m scripts.drive_storage upload prices data\prices.parquet
+```
+
+CLI는 업로드 전에 Drive 폴더 전체/분류별 실제 사용량과 계정 전체 잔여 공간을 조회합니다.
+파일은 32MB 이하 조각으로 저장하고 예비 공간을 제외한 4.25GB를 넘으면 업로드를 차단합니다. 삭제나 기존 파일 교체는 수행하지 않습니다.
+사용량 검사는 단일 업로더 기준입니다. 다른 프로그램/수동 업로드가 동시에 쓰는 공간까지 예약하지는 못하므로 이 폴더에는 순차 업로드하세요.
+5GB는 십진수 5,000,000,000바이트입니다. 폴더에 임의 파일이 추가되면 다음 검사에서 함께 집계합니다.
