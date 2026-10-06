@@ -22,14 +22,21 @@ def main():
             'INVESTPILOT_PUBLIC_ORIGIN':origin,'INVESTPILOT_AUTH_DB':str(temp/'auth.db'),
             'INVESTPILOT_DB':str(temp/'paper.db'),'INVESTPILOT_AI_DB':str(temp/'ai.db'),
             'NEWS_RSS_URLS':'','TOSS_STREAM_ENABLED':'false'}
-        server=subprocess.Popen([sys.executable,'-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8010'],
-            cwd=root,env=environment,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        output=(temp/'launcher.log').open('w')
+        server=subprocess.Popen([sys.executable,'-m','scripts.start','--no-browser','--port','8010'],
+            cwd=root,env=environment,stdout=output,stderr=output)
         try:
             for _ in range(100):
                 try:
                     if httpx.get(origin+'/health',trust_env=False).status_code==200:break
                 except httpx.ConnectError:pass
                 time.sleep(.1)
+            for _ in range(50):
+                if '플랫폼 준비 완료' in (temp/'launcher.log').read_text():break
+                time.sleep(.1)
+            log=(temp/'launcher.log').read_text()
+            assert origin+'/login' in log and origin+'/lab/comparison' in log
+            assert password not in log
             with sync_playwright() as p:
                 browser=p.chromium.launch()
                 page=browser.new_page(viewport={'width':1440,'height':1000})
@@ -60,7 +67,7 @@ def main():
                 browser.close()
             print('Real desktop/mobile login, error, visibility toggle, safe redirect, API protection, CSRF and logout: passed')
         finally:
-            server.terminate();server.wait(timeout=10)
+            server.terminate();server.wait(timeout=10);output.close()
 
 
 if __name__=='__main__':main()
