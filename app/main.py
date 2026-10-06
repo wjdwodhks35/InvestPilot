@@ -11,13 +11,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from app.engine import Engine
 from app.experiments.api import router as experiments_router
+from app.experiments.ai_api import create_ai_router
+from app.experiments.ai_paper import Wallet, OllamaExperiment, Snapshot
 
 from app.broker import TossBroker
 from app.integrations import NewsService, analyze, news_id
 
 @asynccontextmanager
 async def lifespan(app):
-    tasks=[]
+    tasks=[asyncio.create_task(ai_experiment.loop(ai_snapshot))]
     if news_service.feeds: tasks.append(asyncio.create_task(news_service.loop()))
     if broker.enabled and broker.status()['configured']: tasks.append(asyncio.create_task(broker.loop()))
     try: yield
@@ -32,6 +34,21 @@ app.include_router(experiments_router)
 engine = Engine(os.environ.get('INVESTPILOT_DB','data/investpilot.db'))
 news_service = NewsService(engine)
 broker = TossBroker(engine)
+ai_wallet=Wallet(os.environ.get('INVESTPILOT_AI_DB','data/ai-paper.db'))
+ai_experiment=OllamaExperiment(ai_wallet)
+
+def ai_snapshot():
+    quotes=[q for q in engine.market_state() if q['symbol']=='005930']
+    if not quotes:return None
+    q=quotes[0]
+    try:
+        snapshot=Snapshot(price=q['price'],at=q['at'],source='toss_live',news=engine.snapshot()['news'][:20])
+    except ValueError:return None
+    from app.experiments.ai_api import market_context
+    snapshot.indicators=market_context(snapshot.at)
+    return snapshot
+
+app.include_router(create_ai_router(ai_experiment,ai_snapshot,lambda:engine.snapshot()['news']))
 static = Path(__file__).parent/'static'
 app.mount('/static', StaticFiles(directory=static), name='static')
 
