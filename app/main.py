@@ -1,4 +1,8 @@
 import os
+import asyncio
+from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+load_dotenv()
 from pathlib import Path
 from typing import Literal
 from fastapi import FastAPI, HTTPException
@@ -7,8 +11,25 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from app.engine import Engine
 
-app = FastAPI(title='InvestPilot', version='0.1.0')
+from app.broker import TossBroker
+from app.integrations import NewsService, analyze, news_id
+
+@asynccontextmanager
+async def lifespan(app):
+    tasks=[]
+    if news_service.feeds: tasks.append(asyncio.create_task(news_service.loop()))
+    if broker.enabled and broker.status()['configured']: tasks.append(asyncio.create_task(broker.loop()))
+    try: yield
+    finally:
+        for task in tasks: task.cancel()
+        for task in tasks:
+            try: await task
+            except asyncio.CancelledError: pass
+
+app = FastAPI(title='InvestPilot', version='0.2.0', lifespan=lifespan)
 engine = Engine(os.environ.get('INVESTPILOT_DB','data/investpilot.db'))
+news_service = NewsService(engine)
+broker = TossBroker(engine)
 static = Path(__file__).parent/'static'
 app.mount('/static', StaticFiles(directory=static), name='static')
 
@@ -52,4 +73,44 @@ def rules(r:Rules):
     engine.rules(r.model_dump())
     return r
 @app.post('/api/news')
-def news(n:News): return engine.news(n.news_id,n.title,n.url,n.symbol)
+def news(n:News): return engine.news(news_id(n.title,n.url),n.title,n.url,n.symbol)
+
+@app.get('/api/integrations')
+def integrations(): return {**news_service.status(),'broker':broker.status()}
+@app.post('/api/news/collect')
+async def collect(): return await news_service.collect()
+@app.post('/api/news/{item_id}/analyze')
+async def analyze_news(item_id:str):
+    item=engine.get_news(item_id)
+    if not item: raise HTTPException(404,'뉴스를 찾을 수 없습니다')
+    try:
+        result=await analyze(item['title'],item['url'])
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502,'AI 연결에 실패했습니다. API 설정과 연결 상태를 확인하세요') from exc
+    engine.save_analysis(item_id,result)
+    return result
+@app.get('/api/history/{symbol}')
+def history(symbol:str): return engine.history(symbol)
+
+@app.get('/api/broker/accounts')
+async def accounts():
+    try:
+        data=await broker.read('/api/v1/accounts')
+        return [{'account_seq':x['accountSeq'],'account_type':x['accountType']} for x in data]
+    except ValueError as exc: raise HTTPException(409,str(exc)) from exc
+    except Exception as exc: raise HTTPException(502,'토스 계좌 조회 실패. 인증·허용 IP를 확인하세요') from exc
+@app.post('/api/broker/holdings/refresh')
+async def refresh_holdings():
+    try:
+        broker.holdings=await broker.read('/api/v1/holdings',account=True)
+        return broker.holdings
+    except ValueError as exc: raise HTTPException(409,str(exc)) from exc
+    except Exception as exc: raise HTTPException(502,'토스 보유종목 조회 실패. 인증·허용 IP를 확인하세요') from exc
+@app.get('/api/broker/holdings')
+def holdings(): return broker.holdings
+@app.get('/api/market/quotes')
+def market_quotes(): return engine.market_state()
+@app.get('/api/market/history/{symbol}')
+def market_history(symbol:str): return engine.market_history(symbol)

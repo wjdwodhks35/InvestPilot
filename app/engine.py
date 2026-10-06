@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import contextmanager
 from decimal import Decimal
+import threading
 
 WATCHLIST = [
     ('053800', '안랩', '사이버보안'), ('263860', '지니언스', '사이버보안'),
@@ -19,6 +20,7 @@ class Engine:
     def __init__(self, path):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.path = str(path)
+        self.trade_lock = threading.RLock()
         with self.db() as c:
             c.executescript('''
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
@@ -26,6 +28,13 @@ class Engine:
             CREATE TABLE IF NOT EXISTS positions(symbol TEXT PRIMARY KEY,qty INTEGER,cost INTEGER,peak INTEGER);
             CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,symbol TEXT,side TEXT,qty INTEGER,price INTEGER,reason TEXT,at TEXT);
             CREATE TABLE IF NOT EXISTS news(id TEXT PRIMARY KEY,title TEXT,url TEXT,symbol TEXT,analysis TEXT,at TEXT);
+            ''')
+            c.executescript('''
+            CREATE TABLE IF NOT EXISTS price_history(id INTEGER PRIMARY KEY, symbol TEXT,price INTEGER,at TEXT);
+            CREATE INDEX IF NOT EXISTS history_symbol ON price_history(symbol,id);
+            CREATE TABLE IF NOT EXISTS market_quotes(symbol TEXT PRIMARY KEY,price INTEGER,at TEXT);
+            CREATE TABLE IF NOT EXISTS market_history(id INTEGER PRIMARY KEY,symbol TEXT,price INTEGER,at TEXT);
+            CREATE TABLE IF NOT EXISTS news_metadata(id TEXT PRIMARY KEY,source TEXT,published_at TEXT);
             ''')
             for key, value in [('cash', 1000000), ('rules', DEFAULT_RULES)]:
                 c.execute('INSERT OR IGNORE INTO settings VALUES (?,?)', (key, json.dumps(value)))
@@ -58,10 +67,10 @@ class Engine:
                 cash=self.setting(c, 'cash'), rules=self.setting(c, 'rules'),
                 positions=positions, quotes=[dict(x) for x in c.execute('SELECT * FROM quotes')],
                 orders=[dict(x) for x in c.execute('SELECT * FROM orders ORDER BY at DESC LIMIT 100')],
-                news=[dict(x) for x in c.execute('SELECT * FROM news ORDER BY at DESC LIMIT 50')],
+                news=[dict(x) for x in c.execute('SELECT n.*,m.source,m.published_at FROM news n LEFT JOIN news_metadata m USING(id) ORDER BY n.at DESC LIMIT 50')],
                 watchlist=[dict(symbol=s, name=n, theme=t) for s,n,t in WATCHLIST])
 
-    def order(self, symbol, side, qty, request_id, reason='수동 가상 주문'):
+    def _order(self, symbol, side, qty, request_id, reason='수동 가상 주문'):
         with self.db() as c:
             c.execute('BEGIN IMMEDIATE')
             existing = c.execute('SELECT * FROM orders WHERE id=?', (request_id,)).fetchone()
@@ -99,11 +108,21 @@ class Engine:
             c.execute('INSERT INTO orders VALUES (?,?,?,?,?,?,?)', (request_id,symbol,side,qty,q['price'],reason,now.isoformat()))
             return dict(c.execute('SELECT * FROM orders WHERE id=?',(request_id,)).fetchone())
 
-    def quote(self, symbol, price, change):
+    def order(self, *args, **kwargs):
+        with self.trade_lock:
+            return self._order(*args, **kwargs)
+
+    def quote(self, *args, **kwargs):
+        with self.trade_lock:
+            return self._quote(*args, **kwargs)
+
+    def _quote(self, symbol, price, change):
         now = datetime.now(timezone.utc).isoformat()
         with self.db() as c:
             c.execute('BEGIN IMMEDIATE')
             c.execute('INSERT OR REPLACE INTO quotes VALUES (?,?,?,?)',(symbol,price,change,now))
+            c.execute('INSERT INTO price_history(symbol,price,at) VALUES (?,?,?)',(symbol,price,now))
+            c.execute('DELETE FROM price_history WHERE symbol=? AND id NOT IN (SELECT id FROM price_history WHERE symbol=? ORDER BY id DESC LIMIT 2000)',(symbol,symbol))
             p = c.execute('SELECT * FROM positions WHERE symbol=?',(symbol,)).fetchone()
             rules = self.setting(c, 'rules')
             reason = None
@@ -129,3 +148,40 @@ class Engine:
             c.execute('INSERT OR IGNORE INTO news VALUES (?,?,?,?,?,?)',
                 (news_id,title,url,symbol,analysis,datetime.now(timezone.utc).isoformat()))
         return json.loads(analysis)
+
+    def history(self, symbol):
+        with self.db() as c:
+            return [dict(r) for r in c.execute('SELECT price,at FROM (SELECT id,price,at FROM price_history WHERE symbol=? ORDER BY id DESC LIMIT 300) ORDER BY id',(symbol,))]
+
+    def ingest_news(self, item):
+        with self.db() as c:
+            exists=c.execute('SELECT 1 FROM news WHERE id=?',(item['id'],)).fetchone()
+        if exists: return False
+        self.news(item['id'],item['title'],item['url'],'')
+        with self.db() as c:
+            c.execute('INSERT OR IGNORE INTO news_metadata VALUES (?,?,?)',(item['id'],item['source'],item['published_at']))
+        return True
+
+    def get_news(self, news_id):
+        with self.db() as c:
+            row=c.execute('SELECT * FROM news WHERE id=?',(news_id,)).fetchone()
+            return dict(row) if row else None
+
+    def save_analysis(self, news_id, analysis):
+        with self.db() as c:
+            c.execute('UPDATE news SET analysis=? WHERE id=?',(json.dumps(analysis,ensure_ascii=False),news_id))
+
+    def market_tick(self,symbol,price,at):
+        with self.db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            old=c.execute('SELECT at FROM market_quotes WHERE symbol=?',(symbol,)).fetchone()
+            if old and old['at']>=at:return
+            c.execute('INSERT OR REPLACE INTO market_quotes VALUES (?,?,?)',(symbol,price,at))
+            c.execute('INSERT INTO market_history(symbol,price,at) VALUES (?,?,?)',(symbol,price,at))
+            c.execute('DELETE FROM market_history WHERE symbol=? AND id NOT IN (SELECT id FROM market_history WHERE symbol=? ORDER BY id DESC LIMIT 2000)',(symbol,symbol))
+
+    def market_state(self):
+        with self.db() as c:return [dict(x) for x in c.execute('SELECT * FROM market_quotes')]
+
+    def market_history(self,symbol):
+        with self.db() as c:return [dict(x) for x in c.execute('SELECT price,at FROM (SELECT id,price,at FROM market_history WHERE symbol=? ORDER BY id DESC LIMIT 300) ORDER BY id',(symbol,))]
