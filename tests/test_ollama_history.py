@@ -7,7 +7,7 @@ import pytest
 def test_historical_inputs_strictly_before_date(tmp_path):
     dates = pd.bdate_range('2023-01-01', periods=500)
     frame = pd.DataFrame({'date': dates.strftime('%Y-%m-%d'), 'open': 100,
-        'high': 110, 'low': 90, 'close': [100 + 8 * math.sin(i / 10) for i in range(500)], 'volume': 1000})
+        'high': 110, 'low': 90, 'close': [round(100 + 8 * math.sin(i / 10)) for i in range(500)], 'volume': 1000})
     frame.to_csv(tmp_path / 'prices.csv', index=False)
     frame.to_csv(tmp_path / 'peer_000660.csv', index=False)
     cutoff = frame.iloc[400].date
@@ -28,5 +28,5 @@ def test_historical_inputs_strictly_before_date(tmp_path):
 
 def test_forecast_validation():
     with pytest.raises(ValueError):
-        Forecasts.model_validate({'forecasts': [dict(days=7, up=40, flat=40, down=20,
+        Forecasts.model_validate({'forecasts': [dict(days=7, up=40, flat=40, down=20, expected_return_pct=1,
             reason='test', risks='test')] * 3})
