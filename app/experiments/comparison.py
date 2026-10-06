@@ -3,6 +3,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 from datetime import date, timedelta
 from pathlib import Path
 from app.experiments.scoring import score_forecast
@@ -17,6 +18,9 @@ def read(path):
 
 
 def snapshot(root=None):
+    if root is None and os.getenv('INVESTPILOT_DATABASE_URL'):
+        from app.experiments.cloud_results import read as read_cloud
+        return read_cloud()
     root = Path(root or ROOT)
     directories = sorted(root.glob('????-??-??'), reverse=True)
     directory = next((p for p in directories if (p/'evaluation-private.json').exists()), None)

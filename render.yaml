@@ -1,0 +1,32 @@
+# Free web service. Use an existing external FREE PostgreSQL database.
+services:
+  - type: web
+    name: investpilot
+    runtime: python
+    branch: dev
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m scripts.deploy
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    numInstances: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.14
+      - key: INVESTPILOT_DATA_DIR
+        value: data
+      - key: INVESTPILOT_STORAGE_MODE
+        value: postgres
+      - key: INVESTPILOT_DATABASE_URL
+        sync: false
+      - key: INVESTPILOT_AUTH_ENABLED
+        value: "true"
+      - key: INVESTPILOT_AUTH_SECURE_COOKIE
+        value: "true"
+      - key: INVESTPILOT_INITIAL_USERNAME
+        value: admin
+      - key: INVESTPILOT_INITIAL_PASSWORD
+        generateValue: true
+      - key: TOSS_STREAM_ENABLED
+        value: "false"

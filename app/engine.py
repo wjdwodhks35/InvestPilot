@@ -1,9 +1,7 @@
 """Persistent paper trading. Monetary amounts use integer KRW throughout."""
-import sqlite3
+from app.storage import Database
 import json
-from datetime import datetime, timezone
-from pathlib import Path
-from contextlib import contextmanager
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 import threading
 
@@ -19,8 +17,8 @@ DEFAULT_RULES = dict(take_profit=15, stop_loss=7, trailing_stop=5,
 
 class Engine:
     def __init__(self, path):
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.path = str(path)
+        self.storage = Database(path, "paper")
         self.trade_lock = threading.RLock()
         with self.db() as c:
             c.executescript('''
@@ -38,24 +36,17 @@ class Engine:
             CREATE TABLE IF NOT EXISTS news_metadata(id TEXT PRIMARY KEY,source TEXT,published_at TEXT);
             ''')
             for key, value in [('cash', 1000000), ('rules', DEFAULT_RULES)]:
-                c.execute('INSERT OR IGNORE INTO settings VALUES (?,?)', (key, json.dumps(value)))
+                c.execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO NOTHING', (key, json.dumps(value)))
 
-    @contextmanager
     def db(self):
-        c = sqlite3.connect(self.path, timeout=10)
-        c.row_factory = sqlite3.Row
-        try:
-            with c:
-                yield c
-        finally:
-            c.close()
+        return self.storage.db()
 
     def setting(self, c, key):
         return json.loads(c.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()[0])
 
     def rules(self, rules):
         with self.db() as c:
-            c.execute('UPDATE settings SET value=? WHERE key="rules"', (json.dumps(rules),))
+            c.execute("UPDATE settings SET value=? WHERE key='rules'", (json.dumps(rules),))
 
     def snapshot(self):
         with self.db() as c:
@@ -92,10 +83,13 @@ class Engine:
             if side == 'buy':
                 if amount > rules['max_order']: raise ValueError('주문금액 한도 초과')
                 if q['change'] >= rules['surge_limit']: raise ValueError('급등 신규매수 제한')
-                spent = c.execute("SELECT COALESCE(SUM(qty*price),0) FROM orders WHERE side='buy' AND date(at,'+9 hours')=date(?,'+9 hours')", (now.isoformat(),)).fetchone()[0]
+                day = (now + timedelta(hours=9)).date()
+                start = datetime.combine(day, datetime.min.time(), timezone.utc) - timedelta(hours=9)
+                end = start + timedelta(days=1)
+                spent = c.execute("SELECT COALESCE(SUM(qty*price),0) FROM orders WHERE side='buy' AND at>=? AND at<?", (start.isoformat(), end.isoformat())).fetchone()[0]
                 if spent + amount > rules['daily_buy_limit']: raise ValueError('일일 매수금액 한도 초과')
                 if cash < amount: raise ValueError('가상 현금 부족')
-                c.execute('INSERT OR REPLACE INTO positions VALUES (?,?,?,?)',
+                c.execute('INSERT INTO positions VALUES (?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET qty=excluded.qty,cost=excluded.cost,peak=excluded.peak',
                     (symbol, (p['qty'] if p else 0)+qty, (p['cost'] if p else 0)+amount, max(p['peak'] if p else 0,q['price'])))
                 cash -= amount
             else:
@@ -105,7 +99,7 @@ class Engine:
                     c.execute('UPDATE positions SET qty=?,cost=? WHERE symbol=?', (remaining, p['cost']*remaining//p['qty'], symbol))
                 else: c.execute('DELETE FROM positions WHERE symbol=?', (symbol,))
                 cash += amount
-            c.execute('UPDATE settings SET value=? WHERE key="cash"', (json.dumps(cash),))
+            c.execute("UPDATE settings SET value=? WHERE key='cash'", (json.dumps(cash),))
             c.execute('INSERT INTO orders VALUES (?,?,?,?,?,?,?)', (request_id,symbol,side,qty,q['price'],reason,now.isoformat()))
             return dict(c.execute('SELECT * FROM orders WHERE id=?',(request_id,)).fetchone())
 
@@ -121,7 +115,7 @@ class Engine:
         now = datetime.now(timezone.utc).isoformat()
         with self.db() as c:
             c.execute('BEGIN IMMEDIATE')
-            c.execute('INSERT OR REPLACE INTO quotes VALUES (?,?,?,?)',(symbol,price,change,now))
+            c.execute('INSERT INTO quotes VALUES (?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET price=excluded.price,change=excluded.change,at=excluded.at',(symbol,price,change,now))
             c.execute('INSERT INTO price_history(symbol,price,at) VALUES (?,?,?)',(symbol,price,now))
             c.execute('DELETE FROM price_history WHERE symbol=? AND id NOT IN (SELECT id FROM price_history WHERE symbol=? ORDER BY id DESC LIMIT 2000)',(symbol,symbol))
             p = c.execute('SELECT * FROM positions WHERE symbol=?',(symbol,)).fetchone()
@@ -146,7 +140,7 @@ class Engine:
         analysis = json.dumps(dict(method='keyword', matched=matched, keywords=terms,
             important=bool(terms), judgment='검토 필요', note='키워드 분류이며 AI 투자 판단 또는 매매 신호가 아닙니다'),ensure_ascii=False)
         with self.db() as c:
-            c.execute('INSERT OR IGNORE INTO news VALUES (?,?,?,?,?,?)',
+            c.execute('INSERT INTO news VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING',
                 (news_id,title,url,symbol,analysis,datetime.now(timezone.utc).isoformat()))
         return json.loads(analysis)
 
@@ -160,7 +154,7 @@ class Engine:
         if exists: return False
         self.news(item['id'],item['title'],item['url'],'')
         with self.db() as c:
-            c.execute('INSERT OR IGNORE INTO news_metadata VALUES (?,?,?)',(item['id'],item['source'],item['published_at']))
+            c.execute('INSERT INTO news_metadata VALUES (?,?,?) ON CONFLICT(id) DO NOTHING',(item['id'],item['source'],item['published_at']))
         return True
 
     def get_news(self, news_id):
@@ -177,7 +171,7 @@ class Engine:
             c.execute('BEGIN IMMEDIATE')
             old=c.execute('SELECT at FROM market_quotes WHERE symbol=?',(symbol,)).fetchone()
             if old and old['at']>=at:return
-            c.execute('INSERT OR REPLACE INTO market_quotes VALUES (?,?,?)',(symbol,price,at))
+            c.execute('INSERT INTO market_quotes VALUES (?,?,?) ON CONFLICT(symbol) DO UPDATE SET price=excluded.price,at=excluded.at',(symbol,price,at))
             c.execute('INSERT INTO market_history(symbol,price,at) VALUES (?,?,?)',(symbol,price,at))
             c.execute('DELETE FROM market_history WHERE symbol=? AND id NOT IN (SELECT id FROM market_history WHERE symbol=? ORDER BY id DESC LIMIT 2000)',(symbol,symbol))
 

@@ -3,11 +3,9 @@ import asyncio
 import json
 import math
 import os
-import sqlite3
-from contextlib import contextmanager
+from app.storage import Database
 from datetime import datetime, timezone
 from decimal import Decimal
-from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -48,22 +46,18 @@ class Snapshot(BaseModel):
 
 class Wallet:
     def __init__(self,path):
-        self.path=str(path);Path(path).parent.mkdir(parents=True,exist_ok=True)
+        self.path=str(path);self.storage=Database(path, "ai")
         with self.db() as c:
             c.executescript('''
             CREATE TABLE IF NOT EXISTS wallet(id INTEGER PRIMARY KEY,cash INTEGER,units INTEGER,cost INTEGER,initial INTEGER,fees INTEGER,paused INTEGER);
             CREATE TABLE IF NOT EXISTS decisions(id TEXT PRIMARY KEY,model TEXT,price INTEGER,at TEXT,source TEXT,decision TEXT,fill TEXT);
             CREATE TABLE IF NOT EXISTS equity_marks(id INTEGER PRIMARY KEY,at TEXT,price INTEGER,equity INTEGER,source TEXT);
-            INSERT OR IGNORE INTO wallet VALUES(1,100000,0,0,100000,0,0);
+            INSERT INTO wallet VALUES(1,100000,0,0,100000,0,0) ON CONFLICT(id) DO NOTHING;
             ''')
-            if 'context' not in [r['name'] for r in c.execute('PRAGMA table_info(decisions)')]:
+            if not c.has_column('decisions', 'context'):
                 c.execute("ALTER TABLE decisions ADD COLUMN context TEXT DEFAULT '{}'")
-    @contextmanager
     def db(self):
-        c=sqlite3.connect(self.path,timeout=10);c.row_factory=sqlite3.Row
-        try:
-            with c:yield c
-        finally:c.close()
+        return self.storage.db()
     def state(self,price=None):
         with self.db() as c:
             w=dict(c.execute('SELECT * FROM wallet WHERE id=1').fetchone())
@@ -71,7 +65,7 @@ class Wallet:
             w['equity']=w['cash']+w['units']*price//UNITS if price else None
             w['pnl']=w['equity']-w['initial'] if price else None
             w['mode']='paper_only';w['fractional_simulation']=True
-            w['history']=[dict(r) for r in c.execute('SELECT * FROM decisions ORDER BY rowid DESC LIMIT 30')]
+            w['history']=[dict(r) for r in c.execute('SELECT * FROM decisions ORDER BY at DESC,id DESC LIMIT 30')]
             marks=[dict(r) for r in c.execute('SELECT * FROM equity_marks ORDER BY id')]
             peak=w['initial'];drawdown=0
             for mark in marks:

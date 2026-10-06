@@ -3,11 +3,9 @@ import hashlib
 import hmac
 import os
 import secrets
-import sqlite3
+from app.storage import Database
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -60,9 +58,9 @@ class NotConfigured(Exception): pass
 
 
 class AuthStore:
-    def __init__(self, path, clock=time.time):
+    def __init__(self, path, clock=time.time, database_url=None):
         self.path = str(path); self.clock = clock
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        self.storage = Database(path, "auth", database_url=database_url)
         with self.db() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY CHECK(id=1), username TEXT NOT NULL, salt TEXT NOT NULL, password_hash TEXT NOT NULL);
@@ -70,16 +68,12 @@ class AuthStore:
                 CREATE TABLE IF NOT EXISTS attempts (address_hash TEXT NOT NULL, at REAL NOT NULL);
                 CREATE INDEX IF NOT EXISTS attempts_at ON attempts(at);
             ''')
-        try: os.chmod(self.path, 0o600)
-        except OSError: pass
+        if not self.storage.remote:
+            try: os.chmod(self.path, 0o600)
+            except OSError: pass
 
-    @contextmanager
     def db(self):
-        db = sqlite3.connect(self.path, timeout=15)
-        db.row_factory = sqlite3.Row
-        try:
-            with db: yield db
-        finally: db.close()
+        return self.storage.db()
 
     def configured(self):
         with self.db() as db: return db.execute('SELECT 1 FROM owner').fetchone() is not None
@@ -93,7 +87,7 @@ class AuthStore:
             db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT 1 FROM owner').fetchone() and not replace:
                 raise ValueError('계정이 이미 있습니다. 변경하려면 --replace를 사용하세요.')
-            db.execute('INSERT OR REPLACE INTO owner VALUES (1,?,?,?)', (username, salt, hashed))
+            db.execute('INSERT INTO owner VALUES (1,?,?,?) ON CONFLICT(id) DO UPDATE SET username=excluded.username,salt=excluded.salt,password_hash=excluded.password_hash', (username, salt, hashed))
             db.execute('DELETE FROM sessions'); db.execute('DELETE FROM attempts')
 
     def login(self, username, password, address, lifetime, previous_token=''):
