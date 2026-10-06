@@ -1,3 +1,7 @@
+param(
+    [switch]$NoBrowser,
+    [ValidateRange(1,65535)][int]$Port = 8000
+)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 if (-not (Test-Path ".venv\Scripts\python.exe")) {
@@ -7,7 +11,7 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 & .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 if ($LASTEXITCODE -ne 0) { throw "의존성 설치 실패" }
 if (-not (Test-Path ".env")) { Copy-Item .env.example .env }
-Write-Host "첫 실행 시 별도 터미널에서 로그인 계정을 설정하세요: .\.venv\Scripts\python.exe -m scripts.configure_auth --username admin"
-Write-Host "HTTP 로컬 테스트에서만 INVESTPILOT_AUTH_SECURE_COOKIE=false를 사용하세요."
-Write-Host "InvestPilot: http://127.0.0.1:8000 (종료: Ctrl+C)"
-& .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+$LauncherArgs = @("-m", "scripts.start", "--port", "$Port")
+if ($NoBrowser) { $LauncherArgs += "--no-browser" }
+& .\.venv\Scripts\python.exe @LauncherArgs
+if ($LASTEXITCODE -ne 0) { throw "플랫폼 실행 실패. 위 오류 내용을 확인하세요." }

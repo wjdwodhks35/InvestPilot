@@ -19,7 +19,7 @@ $env:INVESTPILOT_AUTH_SECURE_COOKIE="false"
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-또는 저장소 폴더에서 `powershell -ExecutionPolicy Bypass -File .\run.ps1`로 설치와 실행을 한 번에 진행합니다.
+또는 저장소 폴더에서 `powershell -ExecutionPolicy Bypass -File .\run.ps1`로 설치와 실행을 한 번에 진행합니다. 첫 실행에서 계정과 비밀번호를 설정하고, 서버가 준비되면 플랫폼 로그인 화면을 브라우저로 열어 줍니다. 플랫폼·로그인·예측 비교 주소도 터미널에 표시됩니다.
 
 http://127.0.0.1:8000 에서 대시보드, `/docs`에서 API 문서를 확인합니다.
 PC에서 실행하기 전까지 이 프로그램이 백그라운드로 감시하지는 않습니다.
@@ -273,3 +273,26 @@ python -m scripts.configure_auth --username admin --replace
 HTTPS 종료 프록시 뒤에서 앱을 실행하고 Uvicorn을 인터넷에 직접 노출하지 마세요. 브라우저의 POST/PUT/DELETE 요청은 출처를 확인합니다. CLI API 호출에는 로그인 세션 쿠키와 설정된 주소의 `Origin` 헤더가 필요합니다. `INVESTPILOT_AUTH_ENABLED=false`는 루프백 테스트용이며 외부 Host/접속을 거부합니다.
 
 회원가입·이메일 비밀번호 재설정·다중 사용자 계정·2단계 인증은 포함되지 않습니다. 휴대폰도 같은 `/login` 화면으로 로그인하고 사용 후 로그아웃할 수 있습니다.
+
+### 실행하면 플랫폼 열기
+
+Windows에서는 `run.ps1`, Python 환경에서는 `python -m scripts.start`를 사용하세요. 첫 실행에서 로그인 계정이 없으면 이름과 비밀번호를 입력받습니다. 비밀번호 입력 문자는 화면에 보이지 않으며, 저장 파일·로그에 원문을 남기지 않습니다. 기존 계정이 있으면 처음 설정한 계정과 비밀번호를 사용합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+# 브라우저 없이 실행하거나 다른 포트 사용
+powershell -ExecutionPolicy Bypass -File .\run.ps1 -NoBrowser -Port 8123
+```
+
+```bash
+python -m scripts.start
+# 클라우드 서버에서는 계정을 먼저 설정하고 브라우저 없이 실행
+python -m scripts.configure_auth --username admin
+python -m scripts.start --no-browser
+```
+
+기본 플랫폼은 `http://127.0.0.1:8000/`, 로그인은 `/login`, 예측 비교는 `/lab/comparison`입니다. 브라우저는 서버 준비 확인 후 로그인 화면을 엽니다. 이 루프백 주소는 실행한 컴퓨터에서만 접속할 수 있으며 휴대폰용 외부 주소는 서버 배포 후 설정해야 합니다. `INVESTPILOT_PUBLIC_ORIGIN`이 설정되어 있으면 해당 주소를 표시하고 엽니다. 외부 주소의 HTTPS 프록시 설정은 별도로 필요합니다.
+
+실행 도구는 HTTP 루프백용 자식 서버의 Secure 쿠키 설정만 조정하며 `.env`를 변경하지 않습니다. 외부 HTTPS 설정은 그대로 유지합니다. `uvicorn`을 직접 실행하면 브라우저는 자동으로 열리지 않습니다.
+
+비밀번호를 잊었다면 서버 터미널에서 `python -m scripts.configure_auth --username admin --replace`로 새 비밀번호를 설정하세요. 이때 기존 로그인도 모두 해제됩니다. 아직 계정을 만들지 않았다면 사용할 비밀번호가 정해져 있지 않습니다.
