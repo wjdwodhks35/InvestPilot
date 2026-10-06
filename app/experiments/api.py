@@ -76,3 +76,11 @@ def samsung_report():
     if not report.exists():
         return {'ready':False,'message':'삼성전자 실험을 실행하거나 Drive의 결과 파일을 로컬 data 폴더에 복원하세요.'}
     return {'ready':True,'report':json.loads(report.read_text())}
+
+@router.get('/top50/comparison')
+def top50_comparison():
+    from app.experiments.comparison import snapshot
+    try:
+        return snapshot()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(503, '실험 자료를 읽는 중입니다. 잠시 후 새로고침하세요.') from exc
