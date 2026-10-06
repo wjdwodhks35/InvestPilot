@@ -445,7 +445,10 @@ def report(root, test_date):
                 'direction_accuracy': sum(r['scores'][model]['direction_correct'] for r in valid) / count if count else None,
                 'return_accuracy': sum(r['scores'][model]['return_correct'] for r in valid) / count if count else None,
                 'mae_percentage_points': sum(r['scores'][model]['absolute_error_pp'] for r in valid) / count if count else None,
-                'always_up_accuracy': sum(r['actual']['direction'] == 'up' for r in valid) / count if count else None}
+                'always_up_accuracy': sum(r['actual']['direction'] == 'up' for r in valid) / count if count else None,
+                'always_down_accuracy': sum(r['actual']['direction'] == 'down' for r in valid) / count if count else None,
+                'always_flat_accuracy': sum(r['actual']['direction'] == 'flat' for r in valid) / count if count else None,
+                'prediction_counts': {label: sum(r[model]['prediction'] == label for r in valid) for label in LABELS}}
     portfolios = {m: {str(h): paper_portfolio(rows, m, h) for h in HORIZONS} for m in ['logistic', 'ollama']}
     write(directory / 'comparison.json', rows)
     write(directory / 'metrics.json', metrics)
@@ -462,13 +465,13 @@ def report(root, test_date):
     with (directory / 'comparison.csv').open('w', encoding='utf-8-sig', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=keys); writer.writeheader(); writer.writerows(flat)
     lines = ['# 국내 시가총액 상위50 과거 모의 예측', '', f'예측 기준일: {test_date}. 모델: 실제 로컬 Qwen3 4B, 자료 분석→예측 두 프롬프트.', '',
-        '| 기간 | 모델 | 평가 수 | 방향 정답 | 변화율 정답 | 평균 절대 오차(pp) | 항상 상승 기준 |',
-        '|---|---|---:|---:|---:|---:|---:|']
+        '| 기간 | 모델 | 평가 수 | 방향 정답 | 변화율 정답 | 평균 절대 오차(pp) | 항상 상승 기준 | 항상 하락 기준 |',
+        '|---|---|---:|---:|---:|---:|---:|---:|']
     for h in HORIZONS:
         for m in ['logistic', 'ollama']:
             x = metrics[m][str(h)]
             if x['evaluated']:
-                lines.append(f"| {h}일 | {m} | {x['evaluated']} | {x['direction_accuracy']:.1%} | {x['return_accuracy']:.1%} | {x['mae_percentage_points']:.2f} | {x['always_up_accuracy']:.1%} |")
+                lines.append(f"| {h}일 | {m} | {x['evaluated']} | {x['direction_accuracy']:.1%} | {x['return_accuracy']:.1%} | {x['mae_percentage_points']:.2f} | {x['always_up_accuracy']:.1%} | {x['always_down_accuracy']:.1%} |")
     lines += ['', '변화율은 부호가 같고 방향이 정답이며 ±5%포인트 범위에 있을 때 인정. +3%는 +1%~+8%, -3%는 -8%~-1%를 인정합니다.', '',
         '종목별 모의투자 배정은 2,000원이며 상승 예상 종목만 매수합니다. 기간별 별도10만원 포트폴리오, 실제 주문 없음. 첫 후속 거래일 시가 매수, 평가일 종가 매도, 소수점 체결·매수/매도0.1% 수수료 가정. 거래 비용·가격 데이터의 한계를 포함한 별도 실험입니다.', '',
         '현재 상위50종목을 과거로 되돌린 선택편향이 있으며 우선주도 포함합니다. 한 날짜50종목이므로 독립적인50회 실험이 아닙니다. 과거 뉴스 없음, 모델 학습 기억의 미래 정보는 배제 불가. 과거 가격의 수정주가/기업행위 처리는 독립 검증하지 않았습니다. 이 결과로 실제 투자 수익성을 보장하거나 모델 우열을 확정할 수 없습니다.']
@@ -478,7 +481,7 @@ def report(root, test_date):
         for p in sorted(root.rglob('*')):
             if p.is_file(): z.write(p, str(p.relative_to(root)))
     print(json.dumps({'forecasts_collected': len(forecasts), 'metrics': metrics,
-                      'archive': str(archive), 'bytes': archive.stat().st_size()}, ensure_ascii=False), flush=True)
+                      'archive': str(archive), 'bytes': archive.stat().st_size}, ensure_ascii=False), flush=True)
 
 
 def main():
