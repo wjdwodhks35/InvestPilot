@@ -85,7 +85,9 @@ def logistic_before(target, test_date, days):
     """Fit solely on labels whose endpoint is strictly before the test date."""
     x = features(target)
     dates = pd.to_datetime(target.date)
-    endpoints = dates.searchsorted(dates + pd.Timedelta(days=days))
+    # Historical samples decide on the next observation date using the prior
+    # close, matching the same reference-price/decision-date convention.
+    endpoints = dates.searchsorted(dates.shift(-1) + pd.Timedelta(days=days))
     usable = (endpoints < len(target)) & x.notna().all(axis=1).to_numpy()
     indices = np.flatnonzero(usable)
     if len(indices) < 100:
