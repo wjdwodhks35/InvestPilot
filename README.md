@@ -10,9 +10,12 @@ RSS 자동 수집, OpenAI 제목 분석, 토스 계좌/보유종목 조회와 �
 ```powershell
 git clone https://github.com/wjdwodhks35/InvestPilot.git
 cd InvestPilot
-git switch feat/invest-pilot-v1
+git switch dev
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m scripts.configure_auth --username admin
+# HTTP 로컬 테스트에서만 사용
+$env:INVESTPILOT_AUTH_SECURE_COOKIE="false"
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -36,7 +39,8 @@ PC에서 실행하기 전까지 이 프로그램이 백그라운드로 감시하
 일일 매수금액 한도는 한국 날짜를 기준으로 집계합니다. 요청 ID로 중복 주문을 방지합니다.
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m pip install -r requirements-lab.txt pytest
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 ## 구조
@@ -50,7 +54,7 @@ PC에서 실행하기 전까지 이 프로그램이 백그라운드로 감시하
 데이터는 `data/investpilot.db`에 저장됩니다. 종료 후에도 유지됩니다.
 `INVESTPILOT_DB` 환경변수로 DB 경로를 지정할 수 있습니다.
 `.env`, 계좌 데이터, DB는 Git에서 제외합니다. `.env.example`은 후속 연동용 자리표시자이며 V1은 읽지 않습니다.
-서버에는 인증 기능이 없으므로 기본 실행 주소 `127.0.0.1`을 사용하세요.
+기본적으로 로그인 보호가 켜져 있습니다. 외부 접속용 배포에서는 HTTPS와 공개 주소 설정이 필요합니다. 로컬 실행은 `127.0.0.1`에 바인딩하세요.
 
 ## 다음 개발 단계
 
@@ -246,3 +250,26 @@ python -m scripts.ollama_history --analysis-agent
 ### 개발 브랜치 규칙
 
 기능 추가·변경은 `dev`에서 새 `feat/*` 또는 `fix/*` 브랜치를 만들어 작업합니다. 관련 테스트와 전체 테스트, 변경한 화면의 검증이 통과하면 PR로 `dev`에 병합합니다. 검증에서 발견된 오류를 해결하기 전에는 병합하지 않습니다. `main` 반영은 별도 배포 단계입니다.
+
+### 로그인 설정
+
+본인용 단일 계정으로 모든 투자 화면·API·문서 페이지를 보호합니다. `/login`, 로그인 세션 조회 및 로그인 API, 로그인 화면 정적 파일, `/health`만 공개됩니다. 계정이 없으면 보호된 자료에 접근할 수 없으며 기본 계정/비밀번호도 없습니다.
+
+서버 터미널에서 비밀번호를 입력해 계정을 설정합니다. 비밀번호를 명령 인자, 채팅, Git에 넣지 마세요.
+
+```bash
+python -m scripts.configure_auth --username admin
+# 계정 변경/비밀번호 재설정: 기존 로그인도 모두 해제됩니다.
+python -m scripts.configure_auth --username admin --replace
+```
+
+비밀번호는 최소 12자이며 scrypt와 계정별 무작위 salt로 저장합니다. SQLite의 로그인 DB(`data/auth.db`)에는 세션 토큰의 SHA-256 해시만 저장하며, 원본 토큰은 HttpOnly·SameSite=Strict 쿠키로 전달합니다. 기본 세션 수명은 8시간, 로그아웃·계정 변경으로 서버에서 무효화됩니다. 동일 접속 주소의 15분 내 실패 5회 또는 전체 실패 50회 이후 해당 창 내 추가 로그인을 제한합니다.
+
+- `INVESTPILOT_AUTH_ENABLED=true`: 기본값. 외부 배포에서는 유지하세요.
+- `INVESTPILOT_AUTH_DB=data/auth.db`: 계정·세션 저장 경로. 영구 볼륨에 보존하고 백업 시 접근 권한을 제한하세요.
+- `INVESTPILOT_AUTH_SECURE_COOKIE=true`: 기본값. HTTPS 배포에서 유지하세요. HTTP 루프백 개발에서만 `false`로 설정합니다.
+- `INVESTPILOT_PUBLIC_ORIGIN=https://your-domain.example`: 외부 배포 시 실제 HTTPS 주소로 설정합니다. 경로 없이 스킴·호스트·선택적 포트만 입력하세요. 변경 요청은 해당 Origin과 정확히 일치해야 합니다. 미설정이면 루프백의 동일 출처만 허용합니다.
+
+HTTPS 종료 프록시 뒤에서 앱을 실행하고 Uvicorn을 인터넷에 직접 노출하지 마세요. 브라우저의 POST/PUT/DELETE 요청은 출처를 확인합니다. CLI API 호출에는 로그인 세션 쿠키와 설정된 주소의 `Origin` 헤더가 필요합니다. `INVESTPILOT_AUTH_ENABLED=false`는 루프백 테스트용이며 외부 Host/접속을 거부합니다.
+
+회원가입·이메일 비밀번호 재설정·다중 사용자 계정·2단계 인증은 포함되지 않습니다. 휴대폰도 같은 `/login` 화면으로 로그인하고 사용 후 로그아웃할 수 있습니다.

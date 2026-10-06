@@ -45,6 +45,7 @@ def main():
             page=browser.new_page(viewport={'width':1440,'height':1080})
             errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
             response=sample()
+            page.route('**/api/auth/session',lambda route:route.fulfill(json={'enabled':False}))
             page.route('**/api/experiments/top50/comparison',lambda route:route.fulfill(json=response))
             page.goto('http://127.0.0.1:8008/static/comparison.html')
             page.wait_for_function("document.getElementById('rows').children.length===50")
