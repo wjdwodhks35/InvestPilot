@@ -136,3 +136,6 @@ def market_history(symbol:str): return engine.market_history(symbol)
 
 @app.get("/lab")
 def lab(): return FileResponse(static/"lab.html")
+
+@app.get('/lab/comparison')
+def lab_comparison(): return FileResponse(static/'comparison.html')
