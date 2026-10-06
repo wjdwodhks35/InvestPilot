@@ -67,3 +67,12 @@ def storage_plan():
     from app.experiments.storage import config
     settings=config()
     return {**settings,'usage_verified':False,'message':'저장 계획입니다. 실시간 사용량은 Drive 인증 후 CLI로 조회하세요.'}
+
+@router.get('/samsung/report')
+def samsung_report():
+    import json
+    from pathlib import Path
+    report=Path('data/experiments/samsung-price-v1/report.json')
+    if not report.exists():
+        return {'ready':False,'message':'삼성전자 실험을 실행하거나 Drive의 결과 파일을 로컬 data 폴더에 복원하세요.'}
+    return {'ready':True,'report':json.loads(report.read_text())}
