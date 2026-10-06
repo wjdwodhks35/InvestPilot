@@ -17,3 +17,9 @@ def test_negative_and_missing():
     assert score_forecast(3, 'up')['return_correct'] is None
     assert score_forecast(0, 'flat', 0)['return_correct']
     assert not score_forecast(0, 'flat', 1)['return_correct']
+
+
+def test_percentage_point_boundary_ignores_float_rounding():
+    actual = 110 / 100 * 100 - 100
+    assert score_forecast(actual, 'up', 5)['return_correct']
+    assert not score_forecast(actual, 'up', 4.99)['return_correct']

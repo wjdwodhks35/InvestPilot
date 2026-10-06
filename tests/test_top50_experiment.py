@@ -1,8 +1,10 @@
 import numpy as np
 import pandas as pd
 import pytest
+import json
+import httpx
 from scripts.top50_experiment import (past_frames, related_symbols, compact_stats,
-    train_past, actual_result, ForecastItem, paper_portfolio)
+    train_past, actual_result, ForecastItem, paper_portfolio, ForecastBatch, call_model)
 
 
 def samples():
@@ -30,10 +32,11 @@ def test_future_changes_do_not_change_features_peers_or_training():
     assert actual['exit_date'] > cutoff
 
 
-def test_forecast_direction_and_percentage_are_consistent():
+def test_direction_and_magnitude_are_validated_separately():
     ForecastItem(symbol='000001', days=7, up=60, flat=10, down=30, expected_return_pct=2)
+    ForecastItem(symbol='000001', days=7, up=60, flat=10, down=30, expected_return_pct=-2)
     with pytest.raises(ValueError):
-        ForecastItem(symbol='000001', days=7, up=60, flat=10, down=30, expected_return_pct=-2)
+        ForecastItem(symbol='000001', days=7, up=60, flat=10, down=20, expected_return_pct=2)
 
 
 def test_paper_allocation_stays_within_100000_and_does_not_use_reference_fill():
@@ -45,3 +48,20 @@ def test_paper_allocation_stays_within_100000_and_does_not_use_reference_fill():
     assert sum(x['allocated_krw'] for x in portfolio['holdings'])==100000
     assert 109000 < portfolio['final_krw'] < 110000
     assert paper_portfolio(rows[:49],'ollama',7)['status']=='incomplete_universe'
+
+
+def test_model_repairs_invalid_sum_without_receiving_actual_labels():
+    count = 0
+    context = {'stocks': [{'symbol': '000001'}]}
+    def reply(request):
+        nonlocal count
+        count += 1
+        payload = json.loads(request.content)
+        assert 'actual' not in json.dumps(payload)
+        if count == 2: assert 'Validation error:' in payload['messages'][-1]['content']
+        return httpx.Response(200, json={'done': True, 'message': {'content': json.dumps({'forecasts': [
+            dict(symbol='000001', days=7, up=60, flat=10, down=20 if count==1 else 30, expected_return_pct=2)]})}})
+    with httpx.Client(transport=httpx.MockTransport(reply)) as client:
+        parsed, raw = call_model(client, 'qwen3:4b', ForecastBatch, 'Research only', context, 1000)
+    assert parsed.forecasts[0].expected_return_pct == 2
+    assert len(raw['validation_attempts']) == 2

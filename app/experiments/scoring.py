@@ -30,5 +30,5 @@ def score_forecast(actual_pct, predicted_direction, expected_return_pct=None):
         result.update(return_status='evaluated',
             absolute_error_pp=abs(expected_return_pct - actual_pct),
             return_correct=direction_correct and predicted_sign == actual_direction
-                and lower <= expected_return_pct <= upper)
+                and lower - 1e-9 <= expected_return_pct <= upper + 1e-9)
     return result
