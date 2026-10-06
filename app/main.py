@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from app.engine import Engine
+from app.experiments.api import router as experiments_router
 
 from app.broker import TossBroker
 from app.integrations import NewsService, analyze, news_id
@@ -27,6 +28,7 @@ async def lifespan(app):
             except asyncio.CancelledError: pass
 
 app = FastAPI(title='InvestPilot', version='0.2.0', lifespan=lifespan)
+app.include_router(experiments_router)
 engine = Engine(os.environ.get('INVESTPILOT_DB','data/investpilot.db'))
 news_service = NewsService(engine)
 broker = TossBroker(engine)
@@ -114,3 +116,6 @@ def holdings(): return broker.holdings
 def market_quotes(): return engine.market_state()
 @app.get('/api/market/history/{symbol}')
 def market_history(symbol:str): return engine.market_history(symbol)
+
+@app.get("/lab")
+def lab(): return FileResponse(static/"lab.html")
