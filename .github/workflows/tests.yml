@@ -45,7 +45,7 @@ jobs:
           node-version: '22'
       - run: python -m pip install -r requirements-lab.txt pytest
       - run: python -m pytest -q
-      - run: node --check app/static/settings.js && node --check app/static/comparison.js && node --check app/static/login.js && node --check app/static/auth.js
+      - run: node --check app/static/settings.js && node --check app/static/comparison.js && node --check app/static/login.js && node --check app/static/auth.js && node --check app/static/us-lab.js
   browser:
     runs-on: ubuntu-latest
     steps:

@@ -40,7 +40,7 @@ class TossBroker:
             return self.token
 
     async def read(self,path,account=False,client=None,params=None):
-        if path not in ['/api/v1/accounts','/api/v1/holdings','/api/v1/prices']:raise ValueError('읽기 허용 경로가 아닙니다')
+        if path not in ['/api/v1/accounts','/api/v1/holdings','/api/v1/prices','/api/v1/exchange-rate']:raise ValueError('읽기 허용 경로가 아닙니다')
         async def call(c):
             headers={'Authorization':'Bearer '+await self.access_token(c)}
             if account:

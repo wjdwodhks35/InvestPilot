@@ -86,6 +86,26 @@ def ai_snapshot():
     return snapshot
 
 app.include_router(create_ai_router(ai_experiment,ai_snapshot,lambda:engine.snapshot()['news'],lambda:engine.market_history('005930')))
+
+# Separate account-scoped US wallet; KRW accounting includes reference FX changes.
+us_wallets={}
+def us_wallet_for():
+    user=current_user.get()
+    with account_runtime.lock:
+        if user not in us_wallets:
+            us_wallets[user]=Wallet(Path(os.getenv('INVESTPILOT_DATA_DIR','data'))/'accounts'/user/'us-ai.db',tenant=None if user=='owner' else user,namespace='ai_us',initially_paused=True)
+        return us_wallets[user]
+async def us_market_for():
+    item=broker_accounts.get(current_user.get())
+    try:
+        async with item['lock']:
+            prices=await item['broker'].read('/api/v1/prices',params={'symbols':'NVDA,AMD,AVGO,MSFT'})
+            fx=await item['broker'].read('/api/v1/exchange-rate',params={'baseCurrency':'USD','quoteCurrency':'KRW'})
+        return prices,fx
+    except Exception as exc:raise HTTPException(502,connection_error(exc)) from None
+from app.experiments.us_paper import create_us_router
+app.include_router(create_us_router(us_wallet_for,us_market_for))
+
 static = Path(__file__).parent/'static'
 app.mount('/static', StaticFiles(directory=static), name='static')
 
@@ -177,6 +197,9 @@ def holdings(request:Request): return broker_accounts.get(request_user(request))
 def market_quotes(): return engine.market_state()
 @app.get('/api/market/history/{symbol}')
 def market_history(symbol:str): return engine.market_history(symbol)
+
+@app.get("/lab/us")
+def us_lab(): return FileResponse(static/"us-lab.html")
 
 @app.get("/lab")
 def lab(): return FileResponse(static/"lab.html")

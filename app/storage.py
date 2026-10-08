@@ -15,6 +15,8 @@ SCHEMAS['results'] = 'investpilot_results'
 LOCKS['results'] = 731004
 SCHEMAS['settings'] = 'investpilot_settings'
 LOCKS['settings'] = 731005
+SCHEMAS['ai_us'] = 'investpilot_ai_us'
+LOCKS['ai_us'] = 731006
 AUTO_TABLES = {'price_history', 'market_history', 'equity_marks'}
 
 
@@ -77,7 +79,7 @@ class Database:
         self.path, self.namespace = str(path), namespace
         self.schema = SCHEMAS[namespace]
         if tenant:
-            if namespace not in ('paper','ai') or not re.fullmatch('[0-9a-f]{32}',tenant): raise ValueError('Invalid account storage identity')
+            if namespace not in ('paper','ai','ai_us') or not re.fullmatch('[0-9a-f]{32}',tenant): raise ValueError('Invalid account storage identity')
             self.schema += '_u_'+tenant
         self.url = os.getenv('INVESTPILOT_DATABASE_URL', '') if database_url is None else database_url
         self.remote = bool(self.url)

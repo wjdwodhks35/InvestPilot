@@ -17,6 +17,8 @@ class RemoteWallet:
 def http_failure_message(exc):
     path=exc.request.url.path
     code=exc.response.status_code
+    if path=='/api/experiments/us/worker-context' and code==409:
+        return '미국 모의투자 준비 상태와 최신 엔비디아 시세·유효 환율을 확인하세요 (HTTP 409). /lab/us에서 준비하기를 누르세요.'
     if path=='/api/experiments/ai/worker-context' and code==409:
         return '최신 시세 없음 (HTTP 409): 60초 이내 삼성전자 토스 시세가 필요합니다. 장 마감·휴장 또는 시세 수신 상태를 확인하세요. 오래된 가격으로 모의 주문하지 않습니다.'
     if code==401:return '로그인 세션 인증 실패 (HTTP 401). 플랫폼 로그인 정보를 확인하세요.'
@@ -28,6 +30,7 @@ async def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--url',default='https://investpilot-iw76.onrender.com')
     parser.add_argument('--username',required=True)
+    parser.add_argument('--market',choices=['kr','us'],default='kr',help='US uses isolated NVDA paper wallet')
     parser.add_argument('--export',action='store_true',help='Export your observation and decision data; does not train Ollama')
     args=parser.parse_args();origin=args.url.rstrip('/');parsed=urlsplit(origin)
     if parsed.scheme!='https' or parsed.username or parsed.password or parsed.query or parsed.fragment:
@@ -37,14 +40,18 @@ async def main():
         async with httpx.AsyncClient(base_url=origin,timeout=150,trust_env=False,follow_redirects=False,headers={'Origin':origin}) as server:
             print('[1/4] 플랫폼 로그인 확인 중…',flush=True)
             r=await server.post('/api/auth/login',json={'username':args.username,'password':password});password='';r.raise_for_status()
+            if args.export and args.market=='us':
+                print('미국 실험 자료 내보내기는 아직 지원하지 않습니다. 웹 실험실에서 판단 기록을 확인하세요.');return
             if args.export:
                 r=await server.get('/api/experiments/ai/learning-data');r.raise_for_status()
                 output=Path('data/worker/learning-data.json');output.parent.mkdir(parents=True,exist_ok=True);output.write_text(json.dumps(r.json(),ensure_ascii=False,indent=2))
                 print('저장:',output,'· 관측자료이며 모델 학습은 실행하지 않았습니다.');return
             # User explicitly starts one paper decision, never real brokerage orders.
-            print('[2/4] 삼성전자 최신 시세와 참고 자료 조회 중…',flush=True)
-            r=await server.post('/api/market/refresh',json={'symbol':'005930'});r.raise_for_status()
-            r=await server.get('/api/experiments/ai/worker-context');r.raise_for_status();context=r.json()
+            prefix='/api/experiments/us' if args.market=='us' else '/api/experiments/ai'
+            print('[2/4] '+('엔비디아 달러 시세·환율·관련 종목' if args.market=='us' else '삼성전자 최신 시세와 참고 자료')+' 조회 중…',flush=True)
+            if args.market=='kr':
+                r=await server.post('/api/market/refresh',json={'symbol':'005930'});r.raise_for_status()
+            r=await server.get(prefix+'/worker-context');r.raise_for_status();context=r.json()
             snapshot=Snapshot.model_validate(context['snapshot'])
             if context['wallet']['paused']:
                 print('모의투자가 정지되어 있습니다. 실험실에서 준비하기를 누른 뒤 다시 실행하세요.');return
@@ -56,7 +63,10 @@ async def main():
             decision=await experiment.decide(snapshot)
             # Do not silently unpause an experiment: require explicit user control in lab.
             print('[4/4] 가상 체결과 결과 저장 중…',flush=True)
-            r=await server.post('/api/experiments/ai/worker-decision',json={'request_id':'pc-'+str(uuid.uuid4()),'model':experiment.model,'price':snapshot.price,'at':snapshot.at,'decision':decision.model_dump()})
+            payload={'request_id':'pc-'+str(uuid.uuid4()),'model':experiment.model,'decision':decision.model_dump()}
+            if args.market=='us':payload['context_id']=context['context_id']
+            else:payload.update(price=snapshot.price,at=snapshot.at)
+            r=await server.post(prefix+'/worker-decision',json=payload)
             if r.status_code==409:print('정지 상태 또는 가격 만료/변경입니다. 실험실에서 정지 해제 후 다시 실행하세요.');return
             r.raise_for_status();print('완료 · 실험실의 최근 AI 판단에서 결과를 확인하세요.',flush=True);print(json.dumps(r.json(),ensure_ascii=False,indent=2))
     except httpx.HTTPStatusError as exc:print(http_failure_message(exc))
