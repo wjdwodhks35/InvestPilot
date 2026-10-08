@@ -14,6 +14,16 @@ class RemoteWallet:
     def __init__(self,state):self.value=state
     def state(self,*args):return self.value
 
+def http_failure_message(exc):
+    path=exc.request.url.path
+    code=exc.response.status_code
+    if path=='/api/experiments/ai/worker-context' and code==409:
+        return '최신 시세 없음 (HTTP 409): 60초 이내 삼성전자 토스 시세가 필요합니다. 장 마감·휴장 또는 시세 수신 상태를 확인하세요. 오래된 가격으로 모의 주문하지 않습니다.'
+    if code==401:return '로그인 세션 인증 실패 (HTTP 401). 플랫폼 로그인 정보를 확인하세요.'
+    if code==403:return '접근 거부 (HTTP 403). 플랫폼 요청 권한 또는 설정을 확인하세요.'
+    if path=='/api/market/refresh':return f'토스 시세 조회 요청 실패 (HTTP {code}). 플랫폼 설정에서 토스 연결 상태를 확인하세요.'
+    return f'요청 실패 (HTTP {code}, {path}). 모의 주문을 실행하지 않았습니다.'
+
 async def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--url',default='https://investpilot-iw76.onrender.com')
@@ -49,7 +59,9 @@ async def main():
             r=await server.post('/api/experiments/ai/worker-decision',json={'request_id':'pc-'+str(uuid.uuid4()),'model':experiment.model,'price':snapshot.price,'at':snapshot.at,'decision':decision.model_dump()})
             if r.status_code==409:print('정지 상태 또는 가격 만료/변경입니다. 실험실에서 정지 해제 후 다시 실행하세요.');return
             r.raise_for_status();print('완료 · 실험실의 최근 AI 판단에서 결과를 확인하세요.',flush=True);print(json.dumps(r.json(),ensure_ascii=False,indent=2))
-    except httpx.HTTPError:print('연결/인증 실패. 플랫폼·PC Ollama와 최신 토스 시세를 확인하세요.')
+    except httpx.HTTPStatusError as exc:print(http_failure_message(exc))
+    except httpx.TimeoutException:print('요청 시간이 초과됐습니다. 플랫폼 또는 PC Ollama 응답 상태를 확인하세요.')
+    except httpx.RequestError:print('네트워크 연결 실패. 플랫폼과 PC Ollama의 실행 상태를 확인하세요.')
     except ValidationError:
         print('시세 검증 실패: 시각·가격 형식 또는 60초 유효기간을 확인하세요. 모의 주문을 실행하지 않았습니다.')
     except ValueError as exc:
