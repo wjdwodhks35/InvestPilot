@@ -152,3 +152,19 @@ def test_account_namespaces_and_credentials_persist_separately(cloud,tmp_path):
     first_wallet.reset(123456);second_wallet.reset(654321)
     assert first_wallet.state()['cash']==123456
     assert Wallet(tmp_path/'restored-second-ai.db',tenant=user_id).state()['cash']==654321
+
+
+def test_us_wallet_persists_separately_from_domestic_and_other_accounts(cloud,tmp_path):
+    domestic=Wallet(tmp_path/'domestic.db')
+    us=Wallet(tmp_path/'us.db',namespace='ai_us',initially_paused=True)
+    assert us.state()['paused']==1
+    us.pause(False)
+    quote=Snapshot(symbol='NVDA',price=170000,at=datetime.now(timezone.utc).isoformat())
+    decision=Decision(action='buy',allocation_pct=100,up_pct=50,flat_pct=20,down_pct=30,reason='test',risks='test')
+    us.apply('us-persist','test',quote,decision)
+    restart=Wallet(tmp_path/'different.db',namespace='ai_us',initially_paused=True)
+    assert len(restart.state()['history'])==1 and restart.state()['paused']==0
+    assert 0<=restart.state()['cash']<100000
+    assert domestic.state()['cash']==100000 and domestic.state()['history']==[]
+    other=Wallet(tmp_path/'other.db',namespace='ai_us',tenant='b'*32,initially_paused=True)
+    assert other.state()['cash']==100000 and other.state()['history']==[]
