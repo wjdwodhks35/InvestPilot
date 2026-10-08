@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 import uuid
 import httpx
 from app.experiments.ai_paper import OllamaExperiment,Snapshot
+from pydantic import ValidationError
 
 class RemoteWallet:
     def __init__(self,state):self.value=state
@@ -49,6 +50,9 @@ async def main():
             if r.status_code==409:print('정지 상태 또는 가격 만료/변경입니다. 실험실에서 정지 해제 후 다시 실행하세요.');return
             r.raise_for_status();print('완료 · 실험실의 최근 AI 판단에서 결과를 확인하세요.',flush=True);print(json.dumps(r.json(),ensure_ascii=False,indent=2))
     except httpx.HTTPError:print('연결/인증 실패. 플랫폼·PC Ollama와 최신 토스 시세를 확인하세요.')
-    except ValueError:print('가격 또는 AI 응답 검증 실패. 모의 주문을 실행하지 않았습니다.')
+    except ValidationError:
+        print('시세 검증 실패: 시각·가격 형식 또는 60초 유효기간을 확인하세요. 모의 주문을 실행하지 않았습니다.')
+    except ValueError as exc:
+        print(str(exc)+' · 모의 주문을 실행하지 않았습니다.')
 
 if __name__=='__main__':asyncio.run(main())
