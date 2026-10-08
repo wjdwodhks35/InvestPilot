@@ -85,7 +85,7 @@ def ai_snapshot():
     snapshot.indicators=market_context(snapshot.at)
     return snapshot
 
-app.include_router(create_ai_router(ai_experiment,ai_snapshot,lambda:engine.snapshot()['news']))
+app.include_router(create_ai_router(ai_experiment,ai_snapshot,lambda:engine.snapshot()['news'],lambda:engine.market_history('005930')))
 static = Path(__file__).parent/'static'
 app.mount('/static', StaticFiles(directory=static), name='static')
 
@@ -186,3 +186,49 @@ def lab_comparison(): return FileResponse(static/'comparison.html')
 
 from app.auth import AuthSettings, AuthStore, install_auth
 install_auth(app, AuthStore(os.getenv('INVESTPILOT_AUTH_DB','data/auth.db')), AuthSettings.environment(), static)
+
+class PaperSource(BaseModel):
+    source: Literal['manual','toss_live']
+class MarketRefresh(BaseModel):
+    symbol: str | None = Field(default=None,pattern=r'^\d{6}$')
+class CategoryInput(BaseModel):
+    symbol: str = Field(pattern=r'^[A-Za-z0-9.\-]{1,20}$')
+    category: str = Field(min_length=1,max_length=40)
+
+@app.put('/api/paper/source')
+def paper_source(data:PaperSource):return engine.price_source(data.source)
+
+@app.put('/api/broker/categories')
+def category(data:CategoryInput):
+    values=engine.categories();values[data.symbol]=data.category.strip()
+    if not values[data.symbol]:raise HTTPException(400,'카테고리를 입력하세요')
+    if len(values)>200:raise HTTPException(400,'최대 200종목 분류를 지원합니다')
+    return engine.categories(values)
+
+@app.get('/api/broker/breakdown')
+def portfolio_breakdown(request:Request):
+    from app.portfolio import breakdown
+    return breakdown(broker_accounts.get(request_user(request))['broker'].holdings,engine.categories())
+
+@app.post('/api/market/refresh')
+async def market_refresh(data:MarketRefresh,request:Request):
+    from decimal import Decimal
+    from datetime import datetime,timezone
+    from app.engine import WATCHLIST
+    symbols=[data.symbol] if data.symbol else [s for s,n,t in WATCHLIST]
+    item=broker_accounts.get(request_user(request))
+    try:
+        async with item['lock']:
+            prices=await item['broker'].read('/api/v1/prices',params={'symbols':','.join(symbols)})
+        accepted=[]
+        for q in prices:
+            if q.get('symbol') not in symbols or q.get('currency')!='KRW':continue
+            stamp=datetime.fromisoformat(q['timestamp'].replace('Z','+00:00'))
+            price=Decimal(q['lastPrice'])
+            if not stamp.tzinfo or not price.is_finite() or price<=0 or price!=price.to_integral_value() or price>100000000:continue
+            age=(datetime.now(timezone.utc)-stamp).total_seconds()
+            if age< -5 or age>60:continue
+            engine.market_tick(q['symbol'],int(price),stamp.astimezone(timezone.utc).isoformat())
+            accepted.append(q['symbol'])
+        return {'updated':accepted,'message':'시세 조회 완료' if accepted else '60초 이내 시세가 없습니다. 장 마감·거래 중단·응답 시각을 확인하세요.'}
+    except Exception as exc:raise HTTPException(502,connection_error(exc)) from None
