@@ -35,7 +35,7 @@ class Engine:
             CREATE TABLE IF NOT EXISTS market_history(id INTEGER PRIMARY KEY,symbol TEXT,price INTEGER,at TEXT);
             CREATE TABLE IF NOT EXISTS news_metadata(id TEXT PRIMARY KEY,source TEXT,published_at TEXT);
             ''')
-            for key, value in [('cash', 1000000), ('rules', DEFAULT_RULES)]:
+            for key, value in [('cash', 1000000), ('rules', DEFAULT_RULES), ('price_source','manual'), ('categories',{})]:
                 c.execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO NOTHING', (key, json.dumps(value)))
 
     def db(self):
@@ -51,11 +51,13 @@ class Engine:
     def snapshot(self):
         with self.db() as c:
             positions = []
-            for row in c.execute('SELECT p.*,q.price,q.at FROM positions p LEFT JOIN quotes q USING(symbol)'):
+            source=self.setting(c,'price_source')
+            table='market_quotes' if source=='toss_live' else 'quotes'
+            for row in c.execute(f'SELECT p.*,q.price,q.at FROM positions p LEFT JOIN {table} q USING(symbol)'):
                 p = dict(row)
                 p['return_pct'] = round((p['price'] * p['qty'] / p['cost'] - 1) * 100, 2) if p['price'] else None
                 positions.append(p)
-            return dict(mode='paper', price_source='manual', broker_connected=False,
+            return dict(mode='paper', price_source=source, broker_connected=False,
                 cash=self.setting(c, 'cash'), rules=self.setting(c, 'rules'),
                 positions=positions, quotes=[dict(x) for x in c.execute('SELECT * FROM quotes')],
                 orders=[dict(x) for x in c.execute('SELECT * FROM orders ORDER BY at DESC LIMIT 100')],
@@ -72,17 +74,19 @@ class Engine:
                 return dict(existing)
             rules = self.setting(c, 'rules')
             if rules['paused']: raise ValueError('긴급 정지 중입니다')
-            q = c.execute('SELECT * FROM quotes WHERE symbol=?', (symbol,)).fetchone()
-            if not q: raise ValueError('가격을 먼저 입력하세요')
+            source=self.setting(c,'price_source')
+            table='market_quotes' if source=='toss_live' else 'quotes'
+            q = c.execute(f'SELECT * FROM {table} WHERE symbol=?', (symbol,)).fetchone()
+            if not q: raise ValueError('선택한 시세 소스에 가격이 없습니다. 시세를 조회하세요')
             age = (datetime.now(timezone.utc)-datetime.fromisoformat(q['at'])).total_seconds()
-            if age > 60: raise ValueError('가격이 60초 이상 경과했습니다. 갱신하세요')
+            if age < -5 or age > 60: raise ValueError('가격이 60초 이상 경과했습니다. 갱신하세요')
             amount = q['price'] * qty
             cash = self.setting(c, 'cash')
             p = c.execute('SELECT * FROM positions WHERE symbol=?', (symbol,)).fetchone()
             now = datetime.now(timezone.utc)
             if side == 'buy':
                 if amount > rules['max_order']: raise ValueError('주문금액 한도 초과')
-                if q['change'] >= rules['surge_limit']: raise ValueError('급등 신규매수 제한')
+                if source=='manual' and q['change'] >= rules['surge_limit']: raise ValueError('급등 신규매수 제한')
                 day = (now + timedelta(hours=9)).date()
                 start = datetime.combine(day, datetime.min.time(), timezone.utc) - timedelta(hours=9)
                 end = start + timedelta(days=1)
@@ -112,6 +116,8 @@ class Engine:
             return self._quote(*args, **kwargs)
 
     def _quote(self, symbol, price, change):
+        with self.db() as c:
+            if self.setting(c,'price_source')!='manual': raise ValueError('실제 시세 모드에서는 수동 가격을 사용할 수 없습니다')
         now = datetime.now(timezone.utc).isoformat()
         with self.db() as c:
             c.execute('BEGIN IMMEDIATE')
@@ -180,3 +186,15 @@ class Engine:
 
     def market_history(self,symbol):
         with self.db() as c:return [dict(x) for x in c.execute('SELECT price,at FROM (SELECT id,price,at FROM market_history WHERE symbol=? ORDER BY id DESC LIMIT 300) ORDER BY id',(symbol,))]
+
+    def price_source(self,source):
+        if source not in ['manual','toss_live']:raise ValueError('잘못된 시세 소스')
+        with self.trade_lock,self.db() as c:
+            c.execute("UPDATE settings SET value=? WHERE key='price_source'",(json.dumps(source),))
+        return {'price_source':source,'mode':'paper'}
+
+    def categories(self,values=None):
+        with self.db() as c:
+            if values is not None:
+                c.execute("UPDATE settings SET value=? WHERE key='categories'",(json.dumps(values,ensure_ascii=False),))
+            return self.setting(c,'categories')

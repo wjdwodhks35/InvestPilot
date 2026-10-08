@@ -7,7 +7,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from app.experiments.ai_paper import Snapshot
+from app.experiments.ai_paper import Snapshot, Decision
 
 
 PRICE_ROOT=Path('data/experiments/samsung-price-v1')
@@ -42,13 +42,20 @@ def market_context(at):
 class Step(BaseModel):
     request_id: str = Field(min_length=8,max_length=100)
     price: int | None = Field(default=None,gt=0,le=100000000)
+class ExternalDecision(BaseModel):
+    request_id: str = Field(min_length=8,max_length=100)
+    model: str = Field(min_length=1,max_length=100,pattern=r'^[A-Za-z0-9_.:/-]+$')
+    price: int = Field(gt=0,le=100000000)
+    at: str
+    decision: Decision
+
 class Control(BaseModel):
     enabled: bool
 class Reset(BaseModel):
     initial_amount: int = Field(default=100000,ge=1000,le=10000000)
 
 
-def create_ai_router(experiment,provider,news_provider=lambda:[]):
+def create_ai_router(experiment,provider,news_provider=lambda:[],history_provider=lambda:[]):
     router=APIRouter(prefix='/api/experiments/ai',tags=['Ollama paper experiment'])
     @router.get('/state')
     def state():
@@ -64,6 +71,27 @@ def create_ai_router(experiment,provider,news_provider=lambda:[]):
                 'last_error':experiment.last_error,'has_fresh_live_quote':quote is not None,
                 'valuation_at':valuation_at,'valuation_source':valuation_source,
                 'probability_status':'LLM 주관적 추정 · 미보정 · 로지스틱 모델 확률과 별개'}
+    @router.get('/worker-context')
+    def worker_context():
+        snapshot=provider()
+        if not snapshot:raise HTTPException(409,'60초 이내 삼성전자 토스 가격을 먼저 조회하세요')
+        return {'snapshot':snapshot.model_dump(),'wallet':experiment.wallet.state(snapshot.price)}
+    @router.post('/worker-decision')
+    async def worker_decision(data:ExternalDecision):
+        async with experiment.lock:
+            old=experiment.wallet.existing(data.request_id)
+            if old:return old
+            snapshot=provider()
+            if not snapshot or (snapshot.price,snapshot.at)!=(data.price,data.at):
+                raise HTTPException(409,'AI 판단 중 가격이 변경되거나 만료됐습니다. 다시 판단하세요')
+            if experiment.wallet.state()['paused']:raise HTTPException(409,'AI 모의투자를 먼저 정지 해제하세요')
+            return experiment.wallet.apply(data.request_id,data.model,snapshot,data.decision)
+    @router.get('/learning-data')
+    def learning_data():
+        history=history_provider()
+        return {'symbol':'005930','prices':history,'decisions':experiment.wallet.state()['history'],
+            'status':'data_collection','ollama_weights_trained':False,
+            'note':'체결 관측과 AI 판단 기록입니다. 관측 간격이 일정하지 않으며 일봉이 아닙니다. PC 실행 전에는 Ollama 추론·학습이 진행되지 않습니다.'}
     @router.get('/context')
     def context():return market_context(datetime.now(ZoneInfo('Asia/Seoul')).isoformat())
     @router.get('/connection')

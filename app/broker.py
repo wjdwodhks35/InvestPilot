@@ -39,14 +39,14 @@ class TossBroker:
             self.token=d['access_token'];self.expires=time.monotonic()+max(0,int(d['expires_in'])-60)
             return self.token
 
-    async def read(self,path,account=False,client=None):
-        if path not in ['/api/v1/accounts','/api/v1/holdings']:raise ValueError('읽기 허용 경로가 아닙니다')
+    async def read(self,path,account=False,client=None,params=None):
+        if path not in ['/api/v1/accounts','/api/v1/holdings','/api/v1/prices']:raise ValueError('읽기 허용 경로가 아닙니다')
         async def call(c):
             headers={'Authorization':'Bearer '+await self.access_token(c)}
             if account:
                 if not self.account: raise ValueError('TOSS_ACCOUNT_SEQ가 미설정입니다')
                 headers['X-Tossinvest-Account']=self.account
-            r=await c.get('https://openapi.tossinvest.com'+path,headers=headers)
+            r=await c.get('https://openapi.tossinvest.com'+path,headers=headers,params=params)
             if r.status_code==401:self.token=None;self.expires=0
             r.raise_for_status();return r.json()['result']
         if client:return await call(client)
