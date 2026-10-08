@@ -49,6 +49,14 @@ def main():
                         assert page.locator('#account-seq').input_value()==''
                         assert 'synthetic-secret' not in page.locator('body').inner_text()
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                        page.route('**/api/broker/accounts',lambda route:route.fulfill(json=[{'account_seq':'synthetic-selected','account_type':'test'}]))
+                        page.get_by_role('button',name='계좌 불러오기',exact=True).click()
+                        page.wait_for_function("document.getElementById('accounts').options.length===2")
+                        page.locator('#accounts').select_option('synthetic-selected')
+                        assert page.locator('#account-seq').input_value()=='synthetic-selected'
+                        page.locator('#client-id').fill('')
+                        page.get_by_role('button',name='저장',exact=True).click()
+                        page.wait_for_function("document.getElementById('account-seq').value===''")
                         page.route('**/api/settings/toss/test',lambda route:route.fulfill(json={'ok':True,'message':'테스트 인증 성공'}))
                         page.get_by_role('button',name='연결 테스트',exact=True).click()
                         page.wait_for_function("document.getElementById('message').textContent==='테스트 인증 성공'")
@@ -59,6 +67,11 @@ def main():
                         page.reload();page.wait_for_function("document.getElementById('status').textContent.includes('인증정보 미설정')")
                         page.locator('summary').click()
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                    page.locator('#new-username').fill('second-ui')
+                    page.locator('#new-password').fill('synthetic-second-password-123')
+                    page.get_by_role('button',name='계정 추가',exact=True).click()
+                    page.wait_for_function("document.getElementById('user-message').textContent.includes('추가했습니다')")
+                    assert page.locator('#new-password').input_value()==''
                     assert not errors,errors
                     browser.close()
                 print('Settings desktop/mobile interactions passed (synthetic broker test).')

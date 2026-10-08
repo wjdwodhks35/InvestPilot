@@ -121,6 +121,34 @@ def test_encrypted_settings_persist_in_postgres(cloud,tmp_path):
     second=SettingsStore(tmp_path/'two-settings.db',key)
     assert second.load()==value
     with second.database.db() as db:
-        payload=db.execute('SELECT payload FROM integration_settings WHERE id=1').fetchone()['payload']
+        payload=db.execute("SELECT payload FROM account_integration_settings WHERE user_id='owner'").fetchone()['payload']
     assert 'synthetic-secret' not in payload and 'synthetic-account' not in payload
     assert not (tmp_path/'one-settings.db').exists()
+
+
+def test_account_namespaces_and_credentials_persist_separately(cloud,tmp_path):
+    import secrets
+    from cryptography.fernet import Fernet
+    from app.settings import SettingsStore
+    auth=AuthStore(tmp_path/'auth.db');auth.configure('admin','admin-cloud-test-password')
+    auth.add_user('second','second-cloud-test-password')
+    user_id=auth.user_id('second')
+    token=auth.login('second','second-cloud-test-password','account-isolation',3600)
+    assert AuthStore(tmp_path/'restart.db').authenticate(token)=='second'
+    key=Fernet.generate_key();store=SettingsStore(tmp_path/'settings.db',key)
+    store.save({'client_id':'owner','client_secret':'owner-key'})
+    store.save({'client_id':'second','client_secret':'second-key'},user_id)
+    restored=SettingsStore(tmp_path/'restored-settings.db',key)
+    assert restored.load()['client_secret']=='owner-key'
+    assert restored.load(user_id)['client_secret']=='second-key'
+    first=Engine(tmp_path/'first.db')
+    second=Engine(tmp_path/'second.db',tenant=user_id)
+    first.quote('005930',10000,0);first.order('005930','buy',2,'owner-cloud-order')
+    assert second.snapshot()['orders']==[]
+    second.quote('005930',10000,0);second.order('005930','buy',1,'second-cloud-order')
+    assert first.snapshot()['cash']==980000
+    assert Engine(tmp_path/'restored-second.db',tenant=user_id).snapshot()['cash']==990000
+    first_wallet=Wallet(tmp_path/'first-ai.db');second_wallet=Wallet(tmp_path/'second-ai.db',tenant=user_id)
+    first_wallet.reset(123456);second_wallet.reset(654321)
+    assert first_wallet.state()['cash']==123456
+    assert Wallet(tmp_path/'restored-second-ai.db',tenant=user_id).state()['cash']==654321

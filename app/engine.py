@@ -16,9 +16,9 @@ DEFAULT_RULES = dict(take_profit=15, stop_loss=7, trailing_stop=5,
                      surge_limit=15, paused=False)
 
 class Engine:
-    def __init__(self, path):
+    def __init__(self, path, tenant=None):
         self.path = str(path)
-        self.storage = Database(path, "paper")
+        self.storage = Database(path, "paper", tenant=tenant)
         self.trade_lock = threading.RLock()
         with self.db() as c:
             c.executescript('''

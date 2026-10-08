@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from pathlib import Path
 from typing import Literal
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -14,7 +14,7 @@ from app.experiments.api import router as experiments_router
 from app.experiments.ai_api import create_ai_router
 from app.experiments.ai_paper import Wallet, OllamaExperiment, Snapshot
 
-from app.settings import SettingsStore, apply_config, create_settings_router
+from app.settings import SettingsStore, apply_config, create_settings_router, BrokerAccounts, request_user, connection_error
 from app.broker import TossBroker
 from app.integrations import NewsService, analyze, news_id
 
@@ -22,10 +22,15 @@ from app.integrations import NewsService, analyze, news_id
 async def lifespan(app):
     tasks=[asyncio.create_task(ai_experiment.loop(ai_snapshot))]
     if news_service.feeds: tasks.append(asyncio.create_task(news_service.loop()))
-    if broker.enabled and broker.status()['configured']: app.state.broker_task=asyncio.create_task(broker.loop())
+    await broker_accounts.start()
     try: yield
     finally:
-        if getattr(app.state,'broker_task',None): tasks.append(app.state.broker_task)
+        await broker_accounts.stop()
+        for task in account_runtime.tasks.values(): task.cancel()
+        for task in account_runtime.tasks.values():
+            try: await task
+            except asyncio.CancelledError: pass
+        account_runtime.tasks.clear()
         for task in tasks: task.cancel()
         for task in tasks:
             try: await task
@@ -44,18 +49,30 @@ try:
 except ValueError:
     apply_config(broker,{})
 
+broker_accounts=BrokerAccounts(settings_store,broker)
 async def restart_broker(config):
-    task=getattr(app.state,'broker_task',None)
-    if task:
-        task.cancel()
-        try: await task
-        except asyncio.CancelledError: pass
-    apply_config(broker,config)
-    app.state.broker_task=asyncio.create_task(broker.loop()) if broker.enabled and broker.status()['configured'] else None
+    await broker_accounts.restart('owner',config)
 
-app.include_router(create_settings_router(settings_store,broker,broker_settings_lock,restart_broker))
+app.include_router(create_settings_router(settings_store,broker,broker_settings_lock,restart_broker,broker_accounts))
 ai_wallet=Wallet(os.environ.get('INVESTPILOT_AI_DB','data/ai-paper.db'))
 ai_experiment=OllamaExperiment(ai_wallet)
+from app.account_runtime import AccountRuntime, Scoped, current_user
+account_runtime=AccountRuntime(engine,ai_wallet,ai_experiment)
+engine=Scoped(account_runtime,'engine')
+ai_wallet=Scoped(account_runtime,'wallet')
+ai_experiment=Scoped(account_runtime,'experiment')
+broker_accounts.engine_for=lambda user_id: account_runtime.get(user_id)['engine']
+
+@app.middleware('http')
+async def account_scope(request:Request,call_next):
+    user_id=request_user(request)
+    token=current_user.set(user_id)
+    try:
+        if user_id!='owner' and user_id not in account_runtime.tasks:
+            instance=account_runtime.get(user_id)['experiment']
+            account_runtime.tasks[user_id]=asyncio.create_task(instance.loop(ai_snapshot))
+        return await call_next(request)
+    finally: current_user.reset(token)
 
 def ai_snapshot():
     quotes=[q for q in engine.market_state() if q['symbol']=='005930']
@@ -118,7 +135,7 @@ def rules(r:Rules):
 def news(n:News): return engine.news(news_id(n.title,n.url),n.title,n.url,n.symbol)
 
 @app.get('/api/integrations')
-def integrations(): return {**news_service.status(),'broker':broker.status()}
+def integrations(request:Request): return {**news_service.status(),'broker':broker_accounts.get(request_user(request))['broker'].status()}
 @app.post('/api/news/collect')
 async def collect(): return await news_service.collect()
 @app.post('/api/news/{item_id}/analyze')
@@ -137,23 +154,25 @@ async def analyze_news(item_id:str):
 def history(symbol:str): return engine.history(symbol)
 
 @app.get('/api/broker/accounts')
-async def accounts():
+async def accounts(request:Request):
     try:
-        async with broker_settings_lock:
-            data=await broker.read('/api/v1/accounts')
+        item=broker_accounts.get(request_user(request))
+        async with item['lock']:
+            data=await item['broker'].read('/api/v1/accounts')
         return [{'account_seq':x['accountSeq'],'account_type':x['accountType']} for x in data]
     except ValueError as exc: raise HTTPException(409,str(exc)) from exc
-    except Exception as exc: raise HTTPException(502,'토스 계좌 조회 실패. 인증·허용 IP를 확인하세요') from exc
+    except Exception as exc: raise HTTPException(502,connection_error(exc)) from None
 @app.post('/api/broker/holdings/refresh')
-async def refresh_holdings():
+async def refresh_holdings(request:Request):
     try:
-        async with broker_settings_lock:
-            broker.holdings=await broker.read('/api/v1/holdings',account=True)
-        return broker.holdings
+        item=broker_accounts.get(request_user(request))
+        async with item['lock']:
+            item['broker'].holdings=await item['broker'].read('/api/v1/holdings',account=True)
+        return item['broker'].holdings
     except ValueError as exc: raise HTTPException(409,str(exc)) from exc
-    except Exception as exc: raise HTTPException(502,'토스 보유종목 조회 실패. 인증·허용 IP를 확인하세요') from exc
+    except Exception as exc: raise HTTPException(502,connection_error(exc)) from None
 @app.get('/api/broker/holdings')
-def holdings(): return broker.holdings
+def holdings(request:Request): return broker_accounts.get(request_user(request))['broker'].holdings
 @app.get('/api/market/quotes')
 def market_quotes(): return engine.market_state()
 @app.get('/api/market/history/{symbol}')
