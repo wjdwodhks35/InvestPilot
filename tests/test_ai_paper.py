@@ -58,6 +58,28 @@ class AiPaperTests(unittest.TestCase):
                 with self.assertRaises(ValueError):await exp.step('invalid-1',self.snapshot(),c)
             self.assertEqual(self.w.state()['cash'],100000)
         asyncio.run(scenario())
+    def test_response_failures_explain_cause_without_executing_or_echoing_input(self):
+        invalid=self.decision('hold',0).model_dump();invalid['up_pct']=99
+        cases=[
+            ({'done':True,'done_reason':'length','message':{'content':'private-input'}},'길이 제한'),
+            ({'done':False},'완료되지'),
+            ({'done':True},'본문'),
+            ({'done':True,'message':{'content':'private-input'}},'JSON'),
+            ({'done':True,'message':{'content':json.dumps(invalid)}},'확률 합계'),
+            ({'done':True,'message':{'content':'{"action":"private-input"}'}},'필수 필드'),
+        ]
+        async def scenario():
+            exp=OllamaExperiment(self.w)
+            for i,(response,expected) in enumerate(cases):
+                async with httpx.AsyncClient(transport=httpx.MockTransport(lambda req:httpx.Response(200,json=response))) as client:
+                    with self.assertRaises(ValueError) as error:
+                        await exp.step('bad-response-'+str(i),self.snapshot(),client)
+                    self.assertIn(expected,str(error.exception))
+                    self.assertNotIn('private-input',str(error.exception))
+            self.assertEqual(self.w.state()['cash'],100000)
+            self.assertEqual(self.w.state()['history'],[])
+        asyncio.run(scenario())
+
     def test_no_remote_or_cloud_model(self):
         with patch.dict(os.environ,{'OLLAMA_BASE_URL':'https://api.example.com'}):
             with self.assertRaises(ValueError):OllamaExperiment(self.w)
