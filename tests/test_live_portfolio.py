@@ -35,7 +35,7 @@ def test_categories_currency_separation_and_unknown():
 
 
 def test_remote_ai_revalidates_price_pause_and_idempotency(tmp_path):
-    wallet=Wallet(tmp_path/'ai.db');experiment=OllamaExperiment(wallet)
+    wallet=Wallet(tmp_path/'ai.db');wallet.pause(True);experiment=OllamaExperiment(wallet)
     snap=Snapshot(price=70000,at=datetime.now(timezone.utc).isoformat(),source='toss_live')
     app=FastAPI();app.include_router(create_ai_router(experiment,lambda:snap))
     body={'request_id':'worker-test-123','model':'qwen3:4b','price':70000,'at':snap.at,
