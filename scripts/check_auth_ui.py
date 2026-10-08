@@ -72,6 +72,11 @@ def main():
                     page.wait_for_function("document.getElementById('category-breakdown').textContent.includes('100.0%')")
                     assert '삼성전자' in page.locator('#live-prices').inner_text()
                     assert '005930' not in page.locator('#live-prices').inner_text()
+                    assert page.locator('.quote-card').count()==6
+                    page.get_by_role('button',name='안랩 모의 주문 선택',exact=True).click()
+                    assert page.locator('#order select[name=symbol]').input_value()=='053800'
+                    page.get_by_role('link',name='내 실제 계좌',exact=True).click()
+                    assert page.locator('#real-holdings').is_visible()
                     page.locator('#paper-source').select_option('toss_live')
                     page.locator('#source-save').click()
                     page.wait_for_function("document.getElementById('message').textContent.includes('소스를 저장')")
