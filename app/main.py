@@ -14,6 +14,7 @@ from app.experiments.api import router as experiments_router
 from app.experiments.ai_api import create_ai_router
 from app.experiments.ai_paper import Wallet, OllamaExperiment, Snapshot
 
+from app.settings import SettingsStore, apply_config, create_settings_router
 from app.broker import TossBroker
 from app.integrations import NewsService, analyze, news_id
 
@@ -21,9 +22,10 @@ from app.integrations import NewsService, analyze, news_id
 async def lifespan(app):
     tasks=[asyncio.create_task(ai_experiment.loop(ai_snapshot))]
     if news_service.feeds: tasks.append(asyncio.create_task(news_service.loop()))
-    if broker.enabled and broker.status()['configured']: tasks.append(asyncio.create_task(broker.loop()))
+    if broker.enabled and broker.status()['configured']: app.state.broker_task=asyncio.create_task(broker.loop())
     try: yield
     finally:
+        if getattr(app.state,'broker_task',None): tasks.append(app.state.broker_task)
         for task in tasks: task.cancel()
         for task in tasks:
             try: await task
@@ -34,6 +36,24 @@ app.include_router(experiments_router)
 engine = Engine(os.environ.get('INVESTPILOT_DB','data/investpilot.db'))
 news_service = NewsService(engine)
 broker = TossBroker(engine)
+settings_store=SettingsStore()
+broker_settings_lock=asyncio.Lock()
+try:
+    saved_settings=settings_store.load()
+    if saved_settings is not None: apply_config(broker,saved_settings)
+except ValueError:
+    apply_config(broker,{})
+
+async def restart_broker(config):
+    task=getattr(app.state,'broker_task',None)
+    if task:
+        task.cancel()
+        try: await task
+        except asyncio.CancelledError: pass
+    apply_config(broker,config)
+    app.state.broker_task=asyncio.create_task(broker.loop()) if broker.enabled and broker.status()['configured'] else None
+
+app.include_router(create_settings_router(settings_store,broker,broker_settings_lock,restart_broker))
 ai_wallet=Wallet(os.environ.get('INVESTPILOT_AI_DB','data/ai-paper.db'))
 ai_experiment=OllamaExperiment(ai_wallet)
 
@@ -79,6 +99,9 @@ class News(BaseModel):
 def run(fn,*args):
     try: return fn(*args)
     except ValueError as e: raise HTTPException(409,str(e)) from e
+@app.get('/settings')
+def settings_page(): return FileResponse(static/'settings.html')
+
 @app.get('/')
 def home(): return FileResponse(static/'index.html')
 @app.get('/api/state')
@@ -116,14 +139,16 @@ def history(symbol:str): return engine.history(symbol)
 @app.get('/api/broker/accounts')
 async def accounts():
     try:
-        data=await broker.read('/api/v1/accounts')
+        async with broker_settings_lock:
+            data=await broker.read('/api/v1/accounts')
         return [{'account_seq':x['accountSeq'],'account_type':x['accountType']} for x in data]
     except ValueError as exc: raise HTTPException(409,str(exc)) from exc
     except Exception as exc: raise HTTPException(502,'토스 계좌 조회 실패. 인증·허용 IP를 확인하세요') from exc
 @app.post('/api/broker/holdings/refresh')
 async def refresh_holdings():
     try:
-        broker.holdings=await broker.read('/api/v1/holdings',account=True)
+        async with broker_settings_lock:
+            broker.holdings=await broker.read('/api/v1/holdings',account=True)
         return broker.holdings
     except ValueError as exc: raise HTTPException(409,str(exc)) from exc
     except Exception as exc: raise HTTPException(502,'토스 보유종목 조회 실패. 인증·허용 IP를 확인하세요') from exc

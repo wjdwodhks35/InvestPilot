@@ -109,3 +109,18 @@ def test_parameterized_news_and_cloud_comparison(cloud, tmp_path):
     publish(payload)
     assert snapshot()['rows'] == payload['rows']
     assert snapshot()['dashboard_synced_at']
+
+
+def test_encrypted_settings_persist_in_postgres(cloud,tmp_path):
+    from cryptography.fernet import Fernet
+    from app.settings import SettingsStore
+    key=Fernet.generate_key()
+    first=SettingsStore(tmp_path/'one-settings.db',key)
+    value=dict(client_id='synthetic-client',client_secret='synthetic-secret',account_seq='synthetic-account',stream_enabled=False)
+    first.save(value)
+    second=SettingsStore(tmp_path/'two-settings.db',key)
+    assert second.load()==value
+    with second.database.db() as db:
+        payload=db.execute('SELECT payload FROM integration_settings WHERE id=1').fetchone()['payload']
+    assert 'synthetic-secret' not in payload and 'synthetic-account' not in payload
+    assert not (tmp_path/'one-settings.db').exists()

@@ -13,6 +13,8 @@ SCHEMAS = {'paper': 'investpilot_paper', 'ai': 'investpilot_ai', 'auth': 'invest
 LOCKS = {'paper': 731001, 'ai': 731002, 'auth': 731003}
 SCHEMAS['results'] = 'investpilot_results'
 LOCKS['results'] = 731004
+SCHEMAS['settings'] = 'investpilot_settings'
+LOCKS['settings'] = 731005
 AUTO_TABLES = {'price_history', 'market_history', 'equity_marks'}
 
 

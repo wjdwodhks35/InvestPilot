@@ -320,3 +320,12 @@ python -m scripts.publish_comparison --root data/experiments/top50-v1
 이 서버는 플랫폼·모의투자·저장된 결과 표시용입니다. 무료 512MB 서버에는 Qwen/Ollama를 설치하지 않습니다. AI 추론·과거 데이터 수집은 별도 작업으로 실행합니다. 실제 증권 주문을 제출하지 않습니다.
 
 개발은 새 브랜치 → 테스트 → PR → `dev` 병합을 따릅니다. 배포 설정은 CI 통과 후 자동 배포하도록 지정했습니다. 실제 서비스 URL과 계정은 배포 성공 후 확인해야 합니다.
+
+
+### 플랫폼 토스 연결 설정
+
+플랫폼의 **설정**(`/settings`)에서 토스증권 Client ID·Client Secret·계좌 식별값(accountSeq)을 입력하고 저장한 뒤 **연결 테스트**를 누릅니다. 저장은 인증 검증과 별개이며 테스트 성공으로 인증 및 계좌 조회를 확인합니다. 빈 Secret/계좌 입력은 같은 Client ID의 기존 값을 유지합니다. ID 변경에는 새 Secret이 필요합니다. 연결 해제는 저장값을 비우고 환경변수의 과거 키를 다시 활성화하지 않습니다.
+
+Render 환경변수에 `INVESTPILOT_SETTINGS_KEY`를 먼저 설정하세요. `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`로 생성한 키를 비밀 환경변수로 보관하고 계속 같은 값을 유지합니다. 키가 없거나 잘못됐으면 설정 저장을 차단하고, 저장된 값을 복호화할 수 없으면 토스 연동을 활성화하지 않습니다. DB에는 Fernet 암호문만 저장하며 저장된 ID·Secret·계좌 값은 API/화면에 다시 반환하지 않습니다. Neon 사용 시 재배포 후에도 설정이 유지됩니다. 로컬에서는 `data/settings.db`를 사용합니다.
+
+토스증권 WTS 설정 → Open API에서 발급한 인증정보와 서버의 발신 IP 허용 등록이 필요합니다. 실제 사용자 키로 인증 성공 여부는 별도 확인해야 합니다. 실시간 시세 선택을 저장하면 재배포 없이 스트림을 재시작합니다. 계좌·보유종목 조회는 읽기 전용이고 실제 주문은 제출하지 않습니다.
