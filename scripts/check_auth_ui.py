@@ -95,10 +95,28 @@ def main():
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     page.screenshot(path=str(artifacts/f'portfolio-{label}.png'),full_page=True)
                 page.goto(origin+'/lab')
-                page.locator('#ai-data').click()
+                assert page.locator('.lab-targets li').count() == 1
+                assert page.locator('.lab-targets').inner_text().startswith('삼성전자')
+                assert page.locator('input:visible, textarea:visible').count() == 0
+                assert page.locator('.lab-progress li').count() == 4
                 page.wait_for_function("document.getElementById('learning-status').textContent.includes('가중치 학습 미실행')")
+                page.wait_for_function("document.getElementById('lab-permission').textContent !== '확인 중…'")
+                if page.locator('#ai-pause').is_visible():
+                    page.locator('#ai-pause').click()
+                    page.locator('#ai-unpause').wait_for(state='visible')
                 page.locator('#ai-unpause').click()
                 page.wait_for_function("document.getElementById('ai-result').textContent.includes('정지를 해제')")
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                state=page.request.get(origin+'/api/experiments/ai/state').json()
+                state['wallet']['history']=[{'model':'qwen3:4b','at':'2026-10-08T10:10:37+00:00','source':'toss_live','decision':{'action':'hold','down_pct':100,'up_pct':0,'flat_pct':0,'reason':'가격 이력 부족','risks':'자료 없음'},'fill':{'status':'no_trade'},'context':{'indicators':{'target':{'available':False}}}}]
+                page.route('**/api/experiments/ai/state',lambda route:route.fulfill(json=state))
+                page.reload()
+                page.wait_for_function("document.getElementById('lab-probability').textContent.includes('표시하지 않습니다')")
+                assert '100%' not in page.locator('#lab-probability').inner_text()
+                assert '대기' in page.locator('#lab-latest').inner_text()
+                assert page.locator('input:visible, textarea:visible').count() == 0
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                page.screenshot(path=str(artifacts/f'lab-{label}.png'),full_page=True)
                 assert not errors,errors
                 browser.close()
             print('Real desktop/mobile login, error, visibility toggle, safe redirect, API protection, CSRF and logout: passed')
