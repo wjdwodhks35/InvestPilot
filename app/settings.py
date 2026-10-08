@@ -1,4 +1,6 @@
 """Encrypted operator credentials. API responses never contain saved secrets."""
+import ipaddress
+import time
 import json
 import os
 import asyncio
@@ -122,6 +124,29 @@ def request_user(request):
 
 def create_settings_router(store, broker, lock, restart, manager=None):
     router=APIRouter(prefix='/api/settings',tags=['Settings'])
+
+    ip_cache={}
+    ip_lock=asyncio.Lock()
+
+    @router.get('/outbound-ip')
+    async def outbound_ip():
+        # Fixed public endpoint only; no user URL or brokerage credentials are sent.
+        async with ip_lock:
+            if ip_cache and time.monotonic()-ip_cache['at']<60:
+                return ip_cache['result']
+            try:
+                async with httpx.AsyncClient(timeout=8,follow_redirects=False,trust_env=False) as client:
+                    response=await client.get('https://api4.ipify.org',headers={'Accept':'text/plain'})
+                    response.raise_for_status()
+                    value=response.text.strip()
+                    if len(value)>15: raise ValueError()
+                    address=ipaddress.IPv4Address(value)
+                    if not address.is_global: raise ValueError()
+                result={'ip':str(address),'checked_at':int(time.time()),'fixed':False}
+                ip_cache.update(at=time.monotonic(),result=result)
+                return result
+            except (httpx.HTTPError,ValueError):
+                raise HTTPException(502,'서버 발신 IP를 확인하지 못했습니다. 잠시 후 다시 시도하세요.') from None
 
     def context(request):
         if manager:

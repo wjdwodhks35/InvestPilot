@@ -40,6 +40,10 @@ def main():
                     page.get_by_role('button',name='로그인 →').click();page.wait_for_url('**/settings')
                     for width,height,label in [(1440,1000,'desktop'),(390,844,'mobile')]:
                         page.set_viewport_size({'width':width,'height':height})
+                        page.route('**/api/settings/outbound-ip',lambda route:route.fulfill(json={'ip':'74.220.50.12','checked_at':1700000000,'fixed':False}))
+                        page.get_by_role('button',name='서버 발신 IP 확인',exact=True).click()
+                        page.wait_for_function("document.getElementById('ip-result').textContent.includes('74.220.50.12')")
+                        assert page.locator('#copy-ip').is_visible()
                         page.locator('#client-id').fill('synthetic-client')
                         page.locator('#client-secret').fill('synthetic-secret')
                         page.locator('#account-seq').fill('synthetic-account')

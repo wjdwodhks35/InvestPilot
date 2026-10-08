@@ -183,3 +183,38 @@ def test_actual_platform_routes_use_authenticated_account_context(tmp_path,monke
         login('admin','platform-admin-password-123')
         assert client.get('/api/state').json()['cash']==980000
         assert client.get('/api/broker/holdings').json()['items'][0]['name']=='owner-private'
+
+
+def test_outbound_ip_auth_cache_and_validation(tmp_path,monkeypatch):
+    import httpx
+    calls=[]
+    class FakeClient:
+        def __init__(self,**kwargs): assert kwargs['trust_env'] is False
+        async def __aenter__(self): return self
+        async def __aexit__(self,*args): pass
+        async def get(self,url,**kwargs):
+            calls.append(url)
+            return httpx.Response(200,text='74.220.50.12',request=httpx.Request('GET',url))
+    monkeypatch.setattr('app.settings.httpx.AsyncClient',FakeClient)
+    app=FastAPI();store=SettingsStore(tmp_path/'settings.db',Fernet.generate_key(),database_url='')
+    async def restart(config): pass
+    app.include_router(create_settings_router(store,TossBroker(None),asyncio.Lock(),restart))
+    auth=AuthStore(tmp_path/'auth.db',database_url='');auth.configure('admin','test-settings-password-123')
+    install_auth(app,auth,AuthSettings(enabled=True,secure=False,public_origin='http://testserver'),Path('app/static'))
+    with TestClient(app) as client:
+        assert client.get('/api/settings/outbound-ip').status_code==401
+        assert not calls
+        client.post('/api/auth/login',headers={'Origin':'http://testserver'},json={'username':'admin','password':'test-settings-password-123'})
+        first=client.get('/api/settings/outbound-ip')
+        assert first.status_code==200 and first.json()['ip']=='74.220.50.12'
+        assert first.json()['fixed'] is False
+        assert client.get('/api/settings/outbound-ip').json()==first.json()
+        assert calls==['https://api4.ipify.org']
+    class InvalidClient(FakeClient):
+        async def get(self,url,**kwargs):
+            return httpx.Response(200,text='127.0.0.1',request=httpx.Request('GET',url))
+    monkeypatch.setattr('app.settings.httpx.AsyncClient',InvalidClient)
+    invalid=FastAPI();invalid.include_router(create_settings_router(store,TossBroker(None),asyncio.Lock(),restart))
+    with TestClient(invalid) as client:
+        response=client.get('/api/settings/outbound-ip')
+        assert response.status_code==502 and '127.0.0.1' not in response.text
