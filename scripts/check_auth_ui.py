@@ -120,6 +120,20 @@ def main():
                     assert page.locator('input:visible, textarea:visible').count() == 0
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     page.screenshot(path=str(artifacts/f'lab-{label}.png'),full_page=True)
+                    page.goto(origin+'/lab/us')
+                    page.wait_for_function("!document.getElementById('control').disabled")
+                    assert page.locator('input:visible, textarea:visible').count()==0
+                    assert '엔비디아' in page.locator('main').inner_text()
+                    if '정지' in page.locator('#control').inner_text():
+                        page.locator('#control').click()
+                        page.wait_for_function("document.getElementById('status').textContent.includes('정지 중')")
+                    page.locator('#control').click()
+                    page.wait_for_function("document.getElementById('status').textContent.includes('준비 완료')")
+                    assert page.request.get(origin+'/api/experiments/us/state').json()['wallet']['paused']==0
+                    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                    page.screenshot(path=str(artifacts/f'us-lab-{label}.png'),full_page=True)
+                    page.locator('#control').click()
+                    page.wait_for_function("document.getElementById('status').textContent.includes('정지 중')")
                     assert not errors,errors
                 browser.close()
             print('Real desktop/mobile login, error, visibility toggle, safe redirect, API protection, CSRF and logout: passed')
