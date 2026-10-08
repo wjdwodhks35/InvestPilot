@@ -73,8 +73,16 @@ def main():
                     assert '삼성전자' in page.locator('#live-prices').inner_text()
                     assert '005930' not in page.locator('#live-prices').inner_text()
                     assert page.locator('.quote-card').count()==6
+                    page.locator('#stock-search').fill('삼성')
+                    assert page.locator('.quote-card').count()==1
+                    page.locator('#stock-search').fill('')
+                    page.locator('#theme-filter').select_option('사이버보안')
+                    assert page.locator('.quote-card').count()==3
+                    page.locator('#theme-filter').select_option('')
                     page.get_by_role('button',name='안랩 모의 주문 선택',exact=True).click()
                     assert page.locator('#order select[name=symbol]').input_value()=='053800'
+                    page.wait_for_function("document.getElementById('selected-stock').textContent.includes('안랩')")
+                    assert page.locator('#cash').inner_text()=='1,000,000원'
                     page.get_by_role('link',name='내 실제 계좌',exact=True).click()
                     assert page.locator('#real-holdings').is_visible()
                     page.locator('#paper-source').select_option('toss_live')
