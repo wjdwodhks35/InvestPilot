@@ -1,7 +1,7 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>InvestPilot · 예측 비교</title><link rel="stylesheet" href="/static/comparison.css"></head>
-<body><main>
-<nav><a href="/">Invest<span>Pilot</span></a><a href="/lab">모델 실험실 ↗</a></nav>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>InvestPilot · 예측 비교</title><link rel="stylesheet" href="/static/comparison.css"><link rel="stylesheet" href="/static/material.css"></head>
+<body><main><nav class="appbar" aria-label="주요 메뉴"><a class="brand" href="/">Invest<span>Pilot</span></a><div class="nav-links"><a href="/">대시보드</a><a href="/lab">AI 실험실</a><a href="/lab/comparison" aria-current="page">예측 비교</a><a href="/settings">설정</a></div></nav>
+
 <header><p class="eyebrow">MODEL LAB / HISTORICAL TEST</p><h1>예측을 실제 결과와<br>나란히 확인하세요.</h1><p class="muted">국내 시총 상위 50종목 · 로지스틱 회귀와 Ollama AI의 과거 모의 테스트</p></header>
 <div id="notice" role="status" aria-live="polite">실험 자료를 불러오는 중…</div>
 <section class="overview" aria-label="실험 현황"><article><span>예측 기준일</span><strong id="date">—</strong><small>이전 거래일까지의 자료 사용</small></article><article><span>AI 수집 진행률</span><strong id="progress">—</strong><progress id="progress-bar" max="50" value="0" aria-label="완료 종목 수"></progress></article><article><span>예측 모델</span><strong>Qwen3 4B</strong><small>자료 분석 → 투자 예측 · Ollama</small></article><article><span>평가 방식</span><strong>방향 + 변화율</strong><small>변화율 허용 오차 ±5%포인트</small></article></section>
