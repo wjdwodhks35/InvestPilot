@@ -67,15 +67,18 @@ class Connection:
         if self.remote:
             return self.execute('SELECT 1 FROM information_schema.columns WHERE table_schema=? AND table_name=? AND column_name=?',
                                 (self.schema, table, column)).fetchone() is not None
-        if table not in ('decisions',):
+        if table not in ('decisions','sessions'):
             raise ValueError('Unsupported schema inspection')
-        return any(row['name'] == column for row in self.execute('PRAGMA table_info(decisions)'))
+        return any(row['name'] == column for row in self.execute(f'PRAGMA table_info({table})'))
 
 
 class Database:
-    def __init__(self, path, namespace, database_url=None):
+    def __init__(self, path, namespace, database_url=None, tenant=None):
         self.path, self.namespace = str(path), namespace
         self.schema = SCHEMAS[namespace]
+        if tenant:
+            if namespace not in ('paper','ai') or not re.fullmatch('[0-9a-f]{32}',tenant): raise ValueError('Invalid account storage identity')
+            self.schema += '_u_'+tenant
         self.url = os.getenv('INVESTPILOT_DATABASE_URL', '') if database_url is None else database_url
         self.remote = bool(self.url)
         if self.remote:

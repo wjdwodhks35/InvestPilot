@@ -45,8 +45,8 @@ class Snapshot(BaseModel):
         return self
 
 class Wallet:
-    def __init__(self,path):
-        self.path=str(path);self.storage=Database(path, "ai")
+    def __init__(self,path,tenant=None):
+        self.path=str(path);self.storage=Database(path, "ai",tenant=tenant)
         with self.db() as c:
             c.executescript('''
             CREATE TABLE IF NOT EXISTS wallet(id INTEGER PRIMARY KEY,cash INTEGER,units INTEGER,cost INTEGER,initial INTEGER,fees INTEGER,paused INTEGER);

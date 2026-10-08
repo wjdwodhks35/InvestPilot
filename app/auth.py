@@ -1,4 +1,4 @@
-"""Single-owner authentication with durable, revocable server-side sessions."""
+"""Account authentication with durable, revocable server-side sessions."""
 import hashlib
 import hmac
 import os
@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from urllib.parse import urlencode, urlsplit
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection
 
@@ -63,11 +63,19 @@ class AuthStore:
         self.storage = Database(path, "auth", database_url=database_url)
         with self.db() as db:
             db.executescript('''
+                CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, salt TEXT NOT NULL, password_hash TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY CHECK(id=1), username TEXT NOT NULL, salt TEXT NOT NULL, password_hash TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, expires_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS attempts (address_hash TEXT NOT NULL, at REAL NOT NULL);
                 CREATE INDEX IF NOT EXISTS attempts_at ON attempts(at);
             ''')
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.has_column('sessions','user_id'): db.execute('ALTER TABLE sessions ADD COLUMN user_id TEXT')
+            legacy=db.execute('SELECT * FROM owner WHERE id=1').fetchone()
+            if legacy:
+                db.execute('INSERT INTO users VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING',('owner',legacy['username'],legacy['salt'],legacy['password_hash']))
+                db.execute("UPDATE sessions SET user_id='owner' WHERE user_id IS NULL")
         if not self.storage.remote:
             try: os.chmod(self.path, 0o600)
             except OSError: pass
@@ -88,6 +96,7 @@ class AuthStore:
             if db.execute('SELECT 1 FROM owner').fetchone() and not replace:
                 raise ValueError('계정이 이미 있습니다. 변경하려면 --replace를 사용하세요.')
             db.execute('INSERT INTO owner VALUES (1,?,?,?) ON CONFLICT(id) DO UPDATE SET username=excluded.username,salt=excluded.salt,password_hash=excluded.password_hash', (username, salt, hashed))
+            db.execute('INSERT INTO users VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET username=excluded.username,salt=excluded.salt,password_hash=excluded.password_hash',('owner',username,salt,hashed))
             db.execute('DELETE FROM sessions'); db.execute('DELETE FROM attempts')
 
     def login(self, username, password, address, lifetime, previous_token=''):
@@ -98,19 +107,21 @@ class AuthStore:
             db.execute('BEGIN IMMEDIATE')
             db.execute('DELETE FROM attempts WHERE at <= ?', (now-900,))
             db.execute('DELETE FROM sessions WHERE expires_at <= ?', (now,))
-            owner = db.execute('SELECT * FROM owner').fetchone()
-            if not owner: raise NotConfigured()
+            owner = db.execute('SELECT * FROM users WHERE username=?',(username,)).fetchone()
+            fallback=db.execute("SELECT * FROM users WHERE id='owner'").fetchone()
+            if not fallback: raise NotConfigured()
+            candidate=owner or fallback
             count = db.execute('SELECT COUNT(*) FROM attempts WHERE address_hash=?', (address,)).fetchone()[0]
             total = db.execute('SELECT COUNT(*) FROM attempts').fetchone()[0]
             if count >= 5 or total >= 50: raise RateLimited()
-            valid_password = hmac.compare_digest(password_hash(password, owner['salt']), owner['password_hash'])
-            valid_name = hmac.compare_digest(username.encode(), owner['username'].encode())
-            if not valid_password or not valid_name:
+            valid_password = hmac.compare_digest(password_hash(password, candidate['salt']), candidate['password_hash'])
+            valid_name = hmac.compare_digest(username.encode(), candidate['username'].encode())
+            if not owner or not valid_password or not valid_name:
                 db.execute('INSERT INTO attempts VALUES (?,?)', (address, now)); failed = True
             else:
                 token = secrets.token_urlsafe(32)
                 if previous_token: db.execute('DELETE FROM sessions WHERE token_hash=?', (token_hash(previous_token),))
-                db.execute('INSERT INTO sessions VALUES (?,?)', (token_hash(token), now+lifetime))
+                db.execute('INSERT INTO sessions(token_hash,expires_at,user_id) VALUES (?,?,?)', (token_hash(token), now+lifetime,owner['id']))
                 db.execute('DELETE FROM attempts WHERE address_hash=?', (address,))
         if failed: raise LoginFailed()
         return token
@@ -118,9 +129,23 @@ class AuthStore:
     def authenticate(self, token):
         if not token or len(token)>256: return None
         with self.db() as db:
-            row=db.execute('SELECT owner.username FROM sessions CROSS JOIN owner WHERE token_hash=? AND expires_at>?',
+            row=db.execute('SELECT users.username FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash=? AND expires_at>?',
                            (token_hash(token), self.clock())).fetchone()
         return row['username'] if row else None
+
+    def user_id(self, username):
+        with self.db() as db:
+            row=db.execute('SELECT id FROM users WHERE username=?',(username,)).fetchone()
+        return row['id'] if row else None
+
+    def add_user(self, username, password):
+        if not 3<=len(username)<=60 or username!=username.strip() or any(ord(c)<32 for c in username): raise ValueError('계정 이름은 공백 없이 3~60자로 입력하세요.')
+        if not 12<=len(password)<=256: raise ValueError('비밀번호는 12~256자로 입력하세요.')
+        salt=secrets.token_hex(16)
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute('SELECT 1 FROM users WHERE username=?',(username,)).fetchone(): raise ValueError('이미 사용 중인 계정 이름입니다.')
+            db.execute('INSERT INTO users VALUES(?,?,?,?)',(secrets.token_hex(16),username,salt,password_hash(password,salt)))
 
     def revoke(self, token):
         with self.db() as db: db.execute('DELETE FROM sessions WHERE token_hash=?', (token_hash(token),))
@@ -145,6 +170,25 @@ class LoginInput(BaseModel):
 
 def install_auth(app, store, settings, static):
     router=APIRouter(prefix='/api/auth', tags=['Authentication'])
+
+    @router.get('/users')
+    async def users(request:Request):
+        if getattr(request.state,'user_id',None)!='owner': raise HTTPException(403,'관리자만 계정을 관리할 수 있습니다.')
+        def list_users():
+            with store.db() as db: return [{'username':r['username'],'admin':r['id']=='owner'} for r in db.execute('SELECT id,username FROM users ORDER BY username')]
+        return await run_in_threadpool(list_users)
+
+    @router.post('/users')
+    async def create_user(request:Request):
+        if getattr(request.state,'user_id',None)!='owner': raise HTTPException(403,'관리자만 계정을 관리할 수 있습니다.')
+        try:
+            body=await request.body()
+            if len(body)>8192: raise ValueError()
+            data=LoginInput.model_validate_json(body)
+        except (ValueError,ValidationError): raise HTTPException(400,'계정 입력 형식을 확인하세요.') from None
+        try: await run_in_threadpool(store.add_user,data.username,data.password)
+        except ValueError as exc: raise HTTPException(409,str(exc)) from None
+        return {'created':True}
 
     @router.get('/session')
     async def session(request: Request):
@@ -215,6 +259,7 @@ class AuthMiddleware:
                     response=RedirectResponse('/login?'+urlencode({'next':path}),status_code=303)
                 return await response(scope,receive,secure_send)
             scope.setdefault('state',{})['username']=username
+            scope['state']['user_id']=await run_in_threadpool(self.store.user_id,username)
         if method not in ('GET','HEAD','OPTIONS') and not same_origin(request,settings):
             return await JSONResponse({'detail':'요청 출처를 확인할 수 없습니다.'},403)(scope,receive,secure_send)
         if path == '/api/auth/login' and method == 'POST':
