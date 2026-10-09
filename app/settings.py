@@ -164,9 +164,11 @@ def create_settings_router(store, broker, lock, restart, manager=None):
 
     def status(request,b):
         error=None
-        try: store.load(request_user(request))
+        saved=None
+        try: saved=store.load(request_user(request))
         except ValueError as exc: error=str(exc)
-        return dict(storage_ready=store.cipher is not None and error is None,
+        source='saved_account' if saved is not None else 'environment' if request_user(request)=='owner' and b.status()['configured'] and error is None else 'unconfigured'
+        return dict(config_source=source,storage_ready=store.cipher is not None and error is None,
             storage_error=error, client_id_set=bool(b.client_id),
             client_secret_set=bool(b.client_secret), account_set=bool(b.account),
             **b.status())

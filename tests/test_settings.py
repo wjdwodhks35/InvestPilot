@@ -218,3 +218,22 @@ def test_outbound_ip_auth_cache_and_validation(tmp_path,monkeypatch):
     with TestClient(invalid) as client:
         response=client.get('/api/settings/outbound-ip')
         assert response.status_code==502 and '127.0.0.1' not in response.text
+
+
+def test_environment_credentials_can_be_read_and_tested_without_storage_key(tmp_path,monkeypatch):
+    monkeypatch.setenv('TOSS_CLIENT_ID','env-client-test')
+    monkeypatch.setenv('TOSS_CLIENT_SECRET','env-secret-test')
+    from app.settings import BrokerAccounts
+    store=SettingsStore(tmp_path/'settings.db',key='',database_url='')
+    broker=TossBroker(None);manager=BrokerAccounts(store,broker)
+    async def read(*args,**kwargs):return []
+    broker.read=read
+    app=FastAPI();app.include_router(create_settings_router(store,broker,asyncio.Lock(),None,manager))
+    client=TestClient(app)
+    result=client.get('/api/settings/toss')
+    state=result.json()
+    assert state['configured'] and state['client_id_set'] and state['client_secret_set']
+    assert state['config_source']=='environment' and not state['storage_ready']
+    assert 'env-client-test' not in result.text and 'env-secret-test' not in result.text
+    assert client.post('/api/settings/toss/test').json()['ok']
+    assert not manager.get('a'*32)['broker'].status()['configured']
