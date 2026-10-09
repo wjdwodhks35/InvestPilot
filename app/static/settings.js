@@ -4,7 +4,7 @@ async function api(method='GET',data){const response=await fetch('/api/settings/
 let formDirty=false;
 el('toss-form').addEventListener('input',()=>formDirty=true);
 function show(s){
- const source=s.config_source==='environment'?'서버 환경설정(.env / 환경변수) 사용 중':s.config_source==='saved_account'?'내 계정에 저장된 설정 사용 중':s.configured?'인증정보 저장됨':'인증정보 미설정';
+ const source=s.config_source==='environment'?'서버 환경설정(.env / 환경변수) 사용 중':s.config_source==='saved_account'?'내 계정에 저장된 설정 사용 중'+(s.configured?'':' · 인증정보 미설정'):s.configured?'인증정보 저장됨':'인증정보 미설정';
  const storage=s.storage_error||(!s.storage_ready?'암호화 키 미설정: 화면에서 키 저장·변경은 사용할 수 없습니다. 환경설정의 키로 조회·연결 테스트는 가능합니다.':'');
  el('status').textContent=source+' · Client ID '+(s.client_id_set?'설정됨':'미설정')+' · Secret '+(s.client_secret_set?'설정됨':'미설정')+' · 계좌 '+(s.account_set?'저장됨':'미설정')+' · 시세 '+(s.connected?'연결됨':s.stream_enabled?'연결 대기':'꺼짐')+(storage?' · '+storage:'');
  el('client-id').placeholder=s.client_id_set?'이미 설정됨 · 변경할 때만 입력':'Client ID 입력';
