@@ -52,12 +52,21 @@ def main():
             assert page.locator('#price-chart svg').count()==1
             assert page.locator('#return-chart svg').count()==1
             assert '수집 완료' in page.locator('#notice').inner_text()
+            assert page.locator('#prediction-cards article').count()==3
+            assert '상승 +2.50%' in page.locator('#prediction-cards').inner_text()
+            assert '상승 60.0%' in page.locator('#prediction-cards').inner_text()
             page.get_by_role('button',name='중기 · 30일').click()
             assert page.get_by_role('button',name='중기 · 30일').get_attribute('aria-pressed')=='true'
             page.locator('#search').fill('000001');assert page.locator('#rows tr').count()==1
             page.locator('#search').fill('');page.locator('#stock').select_option('000002')
             assert '테스트 종목 2' in page.locator('#stock-title').inner_text()
             assert '대기' in page.locator('#return-chart').inner_text()
+            assert '예측 수집 대기' in page.locator('#prediction-cards').inner_text()
+            response['prices']={}
+            page.get_by_role('button',name='새로고침 ↻').click()
+            page.wait_for_function("document.getElementById('price-chart').textContent.includes('가격 이력이 없습니다')")
+            assert page.locator('#price-notes').inner_text()==''
+            assert '상승 +2.50%' in page.locator('#prediction-cards').inner_text()
             page.screenshot(path=str(artifacts/'desktop.png'),full_page=True)
             page.set_viewport_size({'width':390,'height':844})
             assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
@@ -67,6 +76,16 @@ def main():
             page.get_by_role('button',name='새로고침 ↻').click()
             page.wait_for_function("document.getElementById('notice').textContent==='실험 결과가 없습니다.'")
             assert page.locator('#rows tr').count()==0
+            assert page.locator('#stock').is_disabled()
+            assert '예측 결과 동기화가 필요합니다' in page.locator('#prediction-cards').inner_text()
+            assert page.locator('#prediction-cards a').get_attribute('href')=='/lab'
+            assert '예상 변화율을 표시할 수 없습니다' in page.locator('#return-chart').inner_text()
+            response.clear();response.update(sample())
+            page.get_by_role('button',name='새로고침 ↻').click()
+            page.wait_for_function("document.getElementById('rows').children.length===50")
+            assert page.locator('#stock').is_enabled()
+            assert page.locator('#prediction-cards article').count()==3
+            assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
             assert not errors,errors
             browser.close()
         print('Desktop/mobile charts, period selection, search, pending and empty responses: passed')
