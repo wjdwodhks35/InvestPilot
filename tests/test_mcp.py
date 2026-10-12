@@ -181,3 +181,40 @@ def test_disabled(monkeypatch):
     monkeypatch.delenv('INVESTPILOT_MCP_ENABLED', raising=False)
     with pytest.raises(ValueError, match='disabled'):
         create_app()
+
+def test_broker_stream_limit():
+    from app.mcp_portfolio import CappedStream
+    class Large(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'x'*1_000_001
+            yield b'x'*1_000_001
+    async def consume():
+        async for _ in CappedStream(Large()):
+            pass
+    with pytest.raises(ValueError, match='too large'):
+        asyncio.run(consume())
+
+def test_postgres_mcp(tmp_path):
+    import os
+    url = os.getenv('INVESTPILOT_TEST_POSTGRES_URL')
+    if not url:
+        pytest.skip('Disposable PostgreSQL CI instance required')
+    assert urlsplit_test_host(url) in ('localhost','127.0.0.1','::1')
+    store = AuthStore(tmp_path/'auth.db', database_url=url)
+    store.configure('mcp-test-owner', 'test-password-12345', replace=True)
+    access = MCPAccess(store)
+    with store.db() as db:
+        db.execute('DELETE FROM mcp_links')
+        db.execute('DELETE FROM mcp_limits')
+    access.link(ISSUER, 'postgres-test-subject', 'mcp-test-owner')
+    assert access.identity(ISSUER, 'postgres-test-subject') == 'owner'
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        assert sum(executor.map(lambda _:access.reserve('owner'), range(30))) == 20
+    again = MCPAccess(store)
+    assert not again.reserve('owner')
+    again.revoke('mcp-test-owner')
+    assert access.identity(ISSUER, 'postgres-test-subject') is None
+
+def urlsplit_test_host(url):
+    from urllib.parse import urlsplit
+    return urlsplit(url).hostname

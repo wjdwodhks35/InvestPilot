@@ -11,7 +11,7 @@ class MCPAccess:
                 CREATE TABLE IF NOT EXISTS mcp_links (
                     principal TEXT PRIMARY KEY, user_id TEXT UNIQUE NOT NULL);
                 CREATE TABLE IF NOT EXISTS mcp_limits (
-                    bucket TEXT PRIMARY KEY, window INTEGER NOT NULL, used INTEGER NOT NULL);
+                    bucket TEXT PRIMARY KEY, period INTEGER NOT NULL, used INTEGER NOT NULL);
             """)
 
     @staticmethod
@@ -57,12 +57,12 @@ class MCPAccess:
             db.execute('BEGIN IMMEDIATE')
             pending = []
             for key, window, limit in buckets:
-                row = db.execute('SELECT window,used FROM mcp_limits WHERE bucket=?', (key,)).fetchone()
-                used = row['used'] if row and row['window'] == window else 0
+                row = db.execute('SELECT period,used FROM mcp_limits WHERE bucket=?', (key,)).fetchone()
+                used = row['used'] if row and row['period'] == window else 0
                 if used >= limit:
                     return False
                 pending.append((key, window, used + 1))
             for values in pending:
-                db.execute('INSERT INTO mcp_limits VALUES (?,?,?) ON CONFLICT(bucket) DO UPDATE SET window=excluded.window,used=excluded.used',
+                db.execute('INSERT INTO mcp_limits VALUES (?,?,?) ON CONFLICT(bucket) DO UPDATE SET period=excluded.period,used=excluded.used',
                            values)
         return True
