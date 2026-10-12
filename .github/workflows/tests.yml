@@ -52,7 +52,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: python -m pip install -r requirements-lab.txt pytest
+      - run: python -m pip install -r requirements-lab.txt -r requirements-mcp.txt pytest
       - run: python -m pytest -q
       - run: node --check app/static/settings.js && node --check app/static/comparison.js && node --check app/static/login.js && node --check app/static/auth.js && node --check app/static/us-lab.js
   browser:

@@ -76,6 +76,8 @@ class Verifier:
             claims = jwt.decode(token, key, algorithms=['RS256'], issuer=self.issuer,
                                 audience=self.audience,
                                 options={'require': ['exp', 'iat', 'iss', 'aud', 'sub']})
+            if any(type(claims.get(k)) is not int for k in ('iat', 'exp')):
+                return None
             scope = claims.get('scope')
             client_id = claims.get('azp') or claims.get('client_id')
             if not isinstance(scope, str) or 'portfolio:read' not in scope.split() or client_id not in self.client_ids:
