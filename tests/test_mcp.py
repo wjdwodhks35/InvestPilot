@@ -128,7 +128,7 @@ def test_account_specific_read():
     with pytest.raises(ValueError):
         asyncio.run(read_portfolio(Manager(), None))
 
-def test_sdk_transport(access, signing, monkeypatch):
+def test_sdk_transport(access, signing, monkeypatch, caplog):
     import app.mcp_server as module
     monkeypatch.setenv('INVESTPILOT_MCP_ENABLED', 'true')
     monkeypatch.setenv('INVESTPILOT_MCP_ISSUER', ISSUER)
@@ -138,13 +138,20 @@ def test_sdk_transport(access, signing, monkeypatch):
     access.link(ISSUER, 'test-subject', 'ownername')
     monkeypatch.setattr(module, 'AuthStore', lambda *args: access.store)
     monkeypatch.setattr(module, 'SettingsStore', lambda: object())
+    failing = []
+    other_id = access.store.user_id('othername')
     class Broker:
+        def __init__(self, uid):
+            self.uid = uid
         async def read(self, path, account=False, client=None):
-            return {'items':[dict(symbol='MSFT', currency='USD', quantity='1', lastPrice='20')]}
+            if failing:
+                raise RuntimeError('sentinel-private-credential')
+            return {'items':[dict(symbol='MSFT' if self.uid == 'owner' else 'AAPL',
+                                  currency='USD', quantity='1', lastPrice='20')]}
     class Manager:
         def get(self, uid):
-            assert uid == 'owner'
-            return {'broker':Broker(), 'lock':asyncio.Lock()}
+            assert uid in ('owner', other_id)
+            return {'broker':Broker(uid), 'lock':asyncio.Lock()}
     monkeypatch.setattr(module, 'BrokerAccounts', lambda *args: Manager())
     async def key(self, kid):
         assert kid == 'test-key'
@@ -168,6 +175,15 @@ def test_sdk_transport(access, signing, monkeypatch):
         result = client.post('/mcp', headers=headers, json=call)
         assert result.status_code == 200 and not result.json()['result'].get('isError')
         assert 'MSFT' in result.text
+        access.link(ISSUER, 'other-subject', 'othername')
+        other_headers = {**headers, 'Authorization':'Bearer '+token(signing, sub='other-subject')}
+        other_result = client.post('/mcp', headers=other_headers, json=call)
+        assert 'AAPL' in other_result.text and 'MSFT' not in other_result.text
+        failing.append(True)
+        failure = client.post('/mcp', headers=headers, json=call)
+        assert failure.json()['result']['isError']
+        assert 'sentinel-private-credential' not in failure.text + caplog.text
+        failing.clear()
         call['params']['arguments'] = {'user_id':'other'}
         assert client.post('/mcp', headers=headers, json=call).status_code == 400
         call['params'] = {'name':'place_order','arguments':{}}

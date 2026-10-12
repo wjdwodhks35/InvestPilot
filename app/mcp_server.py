@@ -88,7 +88,8 @@ class Verifier:
             # Pass only verified internal identity, never the JWT or brokerage secrets.
             return AccessToken(token=token, client_id=client_id, scopes=['portfolio:read'],
                                expires_at=int(claims['exp']), resource=self.audience)
-        except (ValueError, TypeError, KeyError, jwt.PyJWTError, httpx.HTTPError):
+        except Exception:
+            # Authentication/storage failures fail closed without logging tokens or provider bodies.
             return None
 
 class Guard:
@@ -169,12 +170,12 @@ def create_app():
         token = get_access_token()
         if token is None:
             raise ValueError('Authorization required')
-        # Reverify binding and revocation for every tool execution, not just connection.
-        claims = jwt.decode(token.token, options={'verify_signature': False, 'verify_exp': True})
-        identity = await run_in_threadpool(access.identity, issuer, claims['sub'])
-        if not identity:
-            raise ValueError('Authorization required')
         try:
+            # The SDK verified this token; check expiry and durable revocation again at execution.
+            claims = jwt.decode(token.token, options={'verify_signature': False, 'verify_exp': True})
+            identity = await run_in_threadpool(access.identity, issuer, claims['sub'])
+            if not identity:
+                raise ValueError('Authorization required')
             return await asyncio.wait_for(read_portfolio(accounts, identity), timeout=20)
         except Exception:
             raise ValueError('Portfolio unavailable; check connection or try later') from None
