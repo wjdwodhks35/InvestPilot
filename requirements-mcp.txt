@@ -1,3 +1,2 @@
+# Compatibility entrypoint; MCP dependencies are included in the web installation.
 -r requirements.txt
-mcp==1.26.0
-PyJWT[crypto]>=2.10.1,<3
