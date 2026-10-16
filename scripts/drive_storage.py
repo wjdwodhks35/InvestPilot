@@ -19,7 +19,7 @@ def main():
     upload.add_argument('category',choices=['prices','news','features','models','reports'])
     upload.add_argument('file')
     args=parser.parse_args()
-    if not os.getenv('GOOGLE_DRIVE_ACCESS_TOKEN'):
+    if not (os.getenv('GOOGLE_DRIVE_ACCESS_TOKEN') or os.getenv('GOOGLE_DRIVE_REFRESH_TOKEN')):
         parser.error('GOOGLE_DRIVE_ACCESS_TOKEN을 로컬 .env에 설정하세요 (채팅에 보내지 마세요)')
     storage=DriveStorage()
     try:
