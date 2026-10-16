@@ -6,3 +6,5 @@ python-dotenv>=1,<2
 websockets>=15,<17
 psycopg[binary]>=3.2,<4
 cryptography>=43,<47
+mcp==1.26.0
+PyJWT[crypto]>=2.10.1,<3

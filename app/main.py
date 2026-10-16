@@ -1,6 +1,6 @@
 import os
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 from dotenv import load_dotenv
 load_dotenv()
 from pathlib import Path
@@ -20,10 +20,20 @@ from app.integrations import NewsService, analyze, news_id
 
 @asynccontextmanager
 async def lifespan(app):
+    async with AsyncExitStack() as stack:
+        if mcp_component is not None:
+            await stack.enter_async_context(mcp_component.app.router.lifespan_context(mcp_component.app))
+        await stack.enter_async_context(web_lifespan(app))
+        yield
+
+
+@asynccontextmanager
+async def web_lifespan(app):
     tasks=[asyncio.create_task(ai_experiment.loop(ai_snapshot))]
     if news_service.feeds: tasks.append(asyncio.create_task(news_service.loop()))
-    await broker_accounts.start()
-    try: yield
+    try:
+        await broker_accounts.start()
+        yield
     finally:
         await broker_accounts.stop()
         for task in account_runtime.tasks.values(): task.cancel()
@@ -208,7 +218,8 @@ def lab(): return FileResponse(static/"lab.html")
 def lab_comparison(): return FileResponse(static/'comparison.html')
 
 from app.auth import AuthSettings, AuthStore, install_auth
-install_auth(app, AuthStore(os.getenv('INVESTPILOT_AUTH_DB','data/auth.db')), AuthSettings.environment(), static)
+auth_store = AuthStore(os.getenv('INVESTPILOT_AUTH_DB','data/auth.db'))
+install_auth(app, auth_store, AuthSettings.environment(), static)
 
 class PaperSource(BaseModel):
     source: Literal['manual','toss_live']
@@ -255,3 +266,8 @@ async def market_refresh(data:MarketRefresh,request:Request):
             accepted.append(q['symbol'])
         return {'updated':accepted,'message':'시세 조회 완료' if accepted else '60초 이내 시세가 없습니다. 장 마감·거래 중단·응답 시각을 확인하세요.'}
     except Exception as exc:raise HTTPException(502,connection_error(exc)) from None
+
+
+# Register last to dispatch MCP before cookie auth and account experiment middleware.
+from app.mcp_server import install_mcp
+mcp_component = install_mcp(app, auth_store, broker_accounts)
