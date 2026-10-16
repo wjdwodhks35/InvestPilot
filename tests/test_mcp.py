@@ -346,3 +346,31 @@ def test_install_disabled_and_invalid_configuration(monkeypatch):
     monkeypatch.setenv('INVESTPILOT_MCP_RESOURCE',RESOURCE)
     with pytest.raises(ValueError, match='public origin'):
         install_mcp(app, None, None)
+
+
+def test_mcp_lifespan_closes_when_web_startup_fails(monkeypatch):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from app import main
+    events = []
+    @asynccontextmanager
+    async def transport_lifespan(app):
+        events.append('mcp-start')
+        try:
+            yield
+        finally:
+            events.append('mcp-stop')
+    @asynccontextmanager
+    async def failed_web(app):
+        events.append('web-start')
+        raise RuntimeError('test-startup-failure')
+        yield
+    component = SimpleNamespace(app=SimpleNamespace(router=SimpleNamespace(lifespan_context=transport_lifespan)))
+    monkeypatch.setattr(main, 'mcp_component', component)
+    monkeypatch.setattr(main, 'web_lifespan', failed_web)
+    async def start():
+        async with main.lifespan(main.app):
+            pytest.fail('Application must not serve after failed startup')
+    with pytest.raises(RuntimeError, match='test-startup-failure'):
+        asyncio.run(start())
+    assert events == ['mcp-start', 'web-start', 'mcp-stop']
