@@ -200,3 +200,10 @@ def test_status_route_requires_owner(store, monkeypatch):
             response = client.get('/api/collection/status')
             assert response.status_code == status
             assert 'private-sentinel' not in response.text
+
+
+
+def test_naver_euc_kr_source_is_decoded():
+    body = ('<?xml version="1.0" encoding="EUC-KR"?>'
+            '<protocol><chartdata name="삼성전자"><item data="20261015|100|110|90|105|10"/></chartdata></protocol>').encode('euc-kr')
+    assert daily_bars(body)[0]['close'] == 105

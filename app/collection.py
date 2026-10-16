@@ -28,6 +28,8 @@ def flag(env, key):
 
 def daily_bars(body, now=None):
     now = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo('Asia/Seoul'))
+    if re.search(rb'encoding=[\"\']euc-kr[\"\']', body[:200], re.I):
+        body = re.sub(rb'euc-kr', b'UTF-8', body.decode('euc-kr').encode('utf-8'), flags=re.I)
     root = ElementTree.fromstring(body)
     rows = {}
     for item in root.findall('.//item'):
