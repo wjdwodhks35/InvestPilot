@@ -342,3 +342,7 @@ Render 환경변수에 `INVESTPILOT_SETTINGS_KEY`를 먼저 설정하세요. `py
 - 보유종목 조회 후 원화/달러 평가금액별 카테고리 비중을 표시합니다. 미분류 종목은 직접 지정하며 사용자 계정별로 유지합니다. 환율로 통합한 전체 비중은 아닙니다.
 - 무료 Render에 PC Ollama가 설치된 것은 아닙니다. PC를 켜고 Ollama 모델 설치 후 `python -m scripts.ollama_remote_paper --username USER`를 실행합니다. 실험실에서 모의투자 정지를 해제해야 합니다. PC가 최신 삼성전자 맥락을 읽어 로컬 추론하고 서버가 시세/정지/잔고를 재검증하여 모의 주문만 적용합니다.
 - `--export`는 계정의 시세 관측과 AI 판단 자료를 내보냅니다. 기존 Drive 업로드 도구와 연결할 수 있습니다. 데이터 수집이나 LLM 추론은 Ollama 가중치 학습이 아닙니다. 과거 일봉 로지스틱 학습은 기존 실험 스크립트를 사용합니다.
+
+## 정기 데이터 수집·Drive 자동 보관 (선택 기능)
+
+`INVESTPILOT_COLLECTION_ENABLED=true`로 승인 후 활성화하면 지정 국내 최대50종목 일봉과 RSS 뉴스를 정기 수집하고 DB에 업로드 대기 자료·성공/실패 이력을 보존합니다. `INVESTPILOT_COLLECTION_DRIVE_ENABLED=true`와 기존 Drive 설정을 준비하면 저장 한도 검사·내용 해시 중복 확인 후 자동 보관합니다. 기본은 비활성이며 실계좌·주문·모델 호출은 하지 않습니다. [자동 수집 운영 안내](docs/automatic-collection.md)를 먼저 확인하세요. 서버 휴면·중지 중에는 수집하지 않습니다.

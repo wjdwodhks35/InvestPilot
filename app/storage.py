@@ -17,6 +17,8 @@ SCHEMAS['settings'] = 'investpilot_settings'
 LOCKS['settings'] = 731005
 SCHEMAS['ai_us'] = 'investpilot_ai_us'
 LOCKS['ai_us'] = 731006
+SCHEMAS['collection'] = 'investpilot_collection'
+LOCKS['collection'] = 731007
 AUTO_TABLES = {'price_history', 'market_history', 'equity_marks'}
 
 

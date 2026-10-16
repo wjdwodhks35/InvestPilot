@@ -17,11 +17,13 @@ from app.experiments.ai_paper import Wallet, OllamaExperiment, Snapshot
 from app.settings import SettingsStore, apply_config, create_settings_router, BrokerAccounts, request_user, connection_error
 from app.broker import TossBroker
 from app.integrations import NewsService, analyze, news_id
+from app.collection import Collector
 
 @asynccontextmanager
 async def lifespan(app):
     tasks=[asyncio.create_task(ai_experiment.loop(ai_snapshot))]
-    if news_service.feeds: tasks.append(asyncio.create_task(news_service.loop()))
+    if collector.enabled: tasks.append(asyncio.create_task(collector.loop()))
+    elif news_service.feeds: tasks.append(asyncio.create_task(news_service.loop()))
     await broker_accounts.start()
     try: yield
     finally:
@@ -40,6 +42,7 @@ app = FastAPI(title='InvestPilot', version='0.2.0', lifespan=lifespan)
 app.include_router(experiments_router)
 engine = Engine(os.environ.get('INVESTPILOT_DB','data/investpilot.db'))
 news_service = NewsService(engine)
+collector = Collector(news_service=news_service)
 broker = TossBroker(engine)
 settings_store=SettingsStore()
 broker_settings_lock=asyncio.Lock()
@@ -255,3 +258,11 @@ async def market_refresh(data:MarketRefresh,request:Request):
             accepted.append(q['symbol'])
         return {'updated':accepted,'message':'시세 조회 완료' if accepted else '60초 이내 시세가 없습니다. 장 마감·거래 중단·응답 시각을 확인하세요.'}
     except Exception as exc:raise HTTPException(502,connection_error(exc)) from None
+
+
+@app.get('/api/collection/status')
+async def collection_status(request: Request):
+    if getattr(request.state, 'user_id', None) != 'owner':
+        raise HTTPException(403, '관리자만 수집 상태를 확인할 수 있습니다.')
+    from starlette.concurrency import run_in_threadpool
+    return await run_in_threadpool(collector.status)
