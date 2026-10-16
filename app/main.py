@@ -24,8 +24,9 @@ async def lifespan(app):
     tasks=[asyncio.create_task(ai_experiment.loop(ai_snapshot))]
     if collector.enabled: tasks.append(asyncio.create_task(collector.loop()))
     elif news_service.feeds: tasks.append(asyncio.create_task(news_service.loop()))
-    await broker_accounts.start()
-    try: yield
+    try:
+        await broker_accounts.start()
+        yield
     finally:
         await broker_accounts.stop()
         for task in account_runtime.tasks.values(): task.cancel()

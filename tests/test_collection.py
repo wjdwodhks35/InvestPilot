@@ -207,3 +207,34 @@ def test_naver_euc_kr_source_is_decoded():
     body = ('<?xml version="1.0" encoding="EUC-KR"?>'
             '<protocol><chartdata name="삼성전자"><item data="20261015|100|110|90|105|10"/></chartdata></protocol>').encode('euc-kr')
     assert daily_bars(body)[0]['close'] == 105
+
+
+def test_web_start_failure_cancels_collector(monkeypatch):
+    from types import SimpleNamespace
+    from app import main
+    events=[]
+    async def research(snapshot):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            events.append('research-stopped')
+    async def collection_loop():
+        try:
+            await asyncio.Event().wait()
+        finally:
+            events.append('collector-stopped')
+    async def start():
+        await asyncio.sleep(0)
+        raise RuntimeError('test-startup-failure')
+    async def stop():
+        events.append('brokers-stopped')
+    monkeypatch.setattr(main,'ai_experiment',SimpleNamespace(loop=research))
+    monkeypatch.setattr(main,'collector',SimpleNamespace(enabled=True,loop=collection_loop))
+    monkeypatch.setattr(main,'broker_accounts',SimpleNamespace(start=start,stop=stop))
+    monkeypatch.setattr(main,'account_runtime',SimpleNamespace(tasks={}))
+    async def run():
+        with pytest.raises(RuntimeError,match='test-startup-failure'):
+            async with main.lifespan(main.app):
+                pytest.fail('Failed startup must not serve')
+    asyncio.run(run())
+    assert set(events)=={'research-stopped','collector-stopped','brokers-stopped'}
