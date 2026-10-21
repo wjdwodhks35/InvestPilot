@@ -72,6 +72,7 @@ def main():
                     page.set_viewport_size({'width':width,'height':1000})
                     page.reload()
                     page.wait_for_function("document.getElementById('portfolio-totals').textContent.includes('70,000')")
+                    page.wait_for_function("document.getElementById('live-prices').textContent.includes('삼성전자')")
                     assert '삼성전자' in page.locator('#live-prices').inner_text()
                     assert '005930' not in page.locator('#live-prices').inner_text()
                     assert page.locator('.quote-card').count()==6
