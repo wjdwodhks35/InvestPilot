@@ -119,6 +119,7 @@ def main():
                         page.wait_for_function("document.querySelector('#dividend-message').textContent.includes('저장했습니다')")
                         page.reload()
                         page.wait_for_function("document.querySelector('#dividend-investment').value==='1000000'")
+                        page.wait_for_function("document.querySelector('#category-breakdown').textContent.includes('장기·배당')")
                         assert '장기·배당' in page.locator('#category-breakdown').inner_text()
                         assert page.locator('#dividend-yield').input_value()=='4'
                         page.locator('#fx-open').click()
@@ -126,8 +127,9 @@ def main():
                         page.wait_for_function("document.querySelectorAll('#fx-chart circle').length>=1")
                         page.screenshot(path=str(artifacts/f'fx-{label}.png'))
                         page.locator('#fx-close').click()
+                        page.locator('#dividend-section').screenshot(path=str(artifacts/f'dividend-{label}.png'))
                         page.locator('#portfolio-section').scroll_into_view_if_needed()
-                        page.screenshot(path=str(artifacts/f'portfolio-{label}.png'),full_page=True)
+                        page.screenshot(path=str(artifacts/f'portfolio-categories-{label}.png'),full_page=True)
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     assert not errors,errors
                     browser.close()
