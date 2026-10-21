@@ -8,6 +8,8 @@ from pathlib import Path
 import httpx
 from playwright.sync_api import sync_playwright
 from app.auth import AuthStore
+from app.engine import Engine
+from app.portfolio import breakdown
 
 
 def main():
@@ -64,12 +66,12 @@ def main():
                 page.locator('#username').fill('test-owner');page.locator('#password').fill(password)
                 page.get_by_role('button',name='로그인 →').click();page.wait_for_url(origin+'/')
                 page.route('**/api/broker/holdings',lambda route:route.fulfill(json={'items':[{'symbol':'005930','name':'삼성전자','quantity':'1','averagePurchasePrice':'60000','lastPrice':'70000','currency':'KRW','profitLoss':{'rate':'0.1667'}}]}))
-                page.route('**/api/broker/breakdown',lambda route:route.fulfill(json={'loaded':True,'currencies':[{'currency':'KRW','total':'70000','categories':[{'category':'AI 반도체','value':'70000','weight_pct':100}]}]}))
+                page.route('**/api/broker/breakdown',lambda route:route.fulfill(json=breakdown({'items':[{'symbol':'005930','name':'삼성전자','quantity':'1','averagePurchasePrice':'60000','lastPrice':'70000','currency':'KRW'}]},Engine(temp/'paper.db').categories())))
                 page.route('**/api/market/quotes',lambda route:route.fulfill(json=[{'symbol':'005930','price':70000,'at':'2026-10-08T07:00:00+00:00'}]))
                 for width,label in [(1440,'desktop'),(390,'mobile')]:
                     page.set_viewport_size({'width':width,'height':1000})
                     page.reload()
-                    page.wait_for_function("document.getElementById('category-breakdown').textContent.includes('100.0%')")
+                    page.wait_for_function("document.getElementById('portfolio-totals').textContent.includes('70,000')")
                     assert '삼성전자' in page.locator('#live-prices').inner_text()
                     assert '005930' not in page.locator('#live-prices').inner_text()
                     assert page.locator('.quote-card').count()==6
@@ -89,9 +91,12 @@ def main():
                     page.locator('#source-save').click()
                     page.wait_for_function("document.getElementById('message').textContent.includes('소스를 저장')")
                     assert page.request.get(origin+'/api/state').json()['price_source']=='toss_live'
+                    page.locator('#portfolio-editor summary').click()
+                    page.locator('#category-symbols input[value=\"005930\"]').check()
                     page.locator('#category-name').fill('반도체 테스트')
-                    page.locator('#category-form button').click()
-                    page.wait_for_function("document.getElementById('message').textContent.includes('카테고리 저장')")
+                    page.locator('#category-save').click()
+                    page.wait_for_function("document.getElementById('portfolio-message').textContent.includes('저장했습니다')")
+                    assert Engine(temp/'paper.db').categories()['005930']=='반도체 테스트'
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     page.screenshot(path=str(artifacts/f'portfolio-{label}.png'),full_page=True)
                 for width,label in [(1440,'desktop'),(390,'mobile')]:
