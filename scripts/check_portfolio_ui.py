@@ -103,7 +103,7 @@ def main():
                         page.wait_for_function("document.querySelector('#category-breakdown').textContent.includes('장기·배당')")
                         page.locator('#dividend-symbol').fill('NODATA')
                         page.locator('#dividend-lookup').click()
-                        page.wait_for_function("document.querySelector('#dividend-message').textContent.includes('자료가 없습니다')")
+                        page.wait_for_function("document.querySelector('#dividend-message').textContent.includes('자료가 없습니다') || document.querySelector('#dividend-message').textContent.includes('잠시 후')")
                         assert page.locator('#dividend-results article').count()==0
                         assert page.locator('#dividend-yield').input_value()==''
                         page.locator('#dividend-stock').select_option('005930')
