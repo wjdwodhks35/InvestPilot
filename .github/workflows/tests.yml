@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [dev, main]
   push:
-    branches: [dev, feat/openai-readonly-mcp]
+    branches: [dev, 'feat/**', 'fix/**']
 permissions:
   contents: read
 jobs:
@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements-mcp.txt pytest
-      - run: python -m pytest tests/test_mcp.py -q
+      - run: python -m pytest tests/test_mcp.py tests/test_mcp_preflight.py -q
   postgres:
     runs-on: ubuntu-latest
     services:
@@ -38,7 +38,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements-mcp.txt pytest
-      - run: python -m pytest tests/test_cloud_storage.py tests/test_deploy.py tests/test_mcp.py -q
+      - run: python -m pytest tests/test_cloud_storage.py tests/test_deploy.py tests/test_mcp.py tests/test_mcp_preflight.py tests/test_collection.py tests/test_portfolio_categories.py tests/test_dividend_market.py -q
         env:
           # Disposable CI database only; production requires TLS.
           INVESTPILOT_TEST_POSTGRES_URL: postgresql://investpilot_test:integration-test-only@127.0.0.1:5432/investpilot_test?sslmode=disable
@@ -54,7 +54,7 @@ jobs:
           node-version: '22'
       - run: python -m pip install -r requirements-lab.txt -r requirements-mcp.txt pytest
       - run: python -m pytest -q
-      - run: node --check app/static/settings.js && node --check app/static/comparison.js && node --check app/static/login.js && node --check app/static/auth.js && node --check app/static/us-lab.js
+      - run: node --check app/static/settings.js && node --check app/static/comparison.js && node --check app/static/login.js && node --check app/static/auth.js && node --check app/static/us-lab.js && node --check app/static/portfolio.js && node --check app/static/dividends.js && node --check app/static/fx.js
   browser:
     runs-on: ubuntu-latest
     steps:
@@ -65,6 +65,7 @@ jobs:
       - run: python -m pip install -r requirements.txt playwright
       - run: python -m playwright install --with-deps chromium
       - run: python scripts/check_comparison_ui.py
+      - run: python -m scripts.check_portfolio_ui
       - run: python -m scripts.check_auth_ui
       - run: python -m scripts.check_settings_ui
       - uses: actions/upload-artifact@v4
