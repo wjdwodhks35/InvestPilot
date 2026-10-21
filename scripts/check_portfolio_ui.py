@@ -21,6 +21,18 @@ def serve():
             return dict(baseCurrency='USD',quoteCurrency='KRW',rate='1400',validFrom=(now-timedelta(seconds=1)).isoformat(),validUntil=(now+timedelta(minutes=10)).isoformat())
         raise ValueError('Only synthetic portfolio reads allowed')
     main.broker.read=read
+    import httpx
+    from app.dividend_market import DividendMarket
+    def provider(request):
+        symbol=request.url.params['symbol']
+        if request.url.path.endswith('/profile2'):
+            return httpx.Response(200,json={'ticker':symbol,'currency':'KRW' if symbol=='TEST-KR' else 'USD'})
+        if request.url.path.endswith('/metric'):
+            return httpx.Response(200,json={'symbol':symbol,'metric':{} if symbol=='NODATA' else {'dividendYieldIndicatedAnnual':4}})
+        return httpx.Response(200,json={'c':50000 if symbol=='TEST-KR' else 100,'t':datetime.now(timezone.utc).timestamp()})
+    main.dividend_market=DividendMarket(env={'FINNHUB_API_KEY':'synthetic-test-key',
+        'INVESTPILOT_DIVIDEND_SYMBOL_MAP':'{"005930":"TEST-KR"}'},
+        client=httpx.AsyncClient(transport=httpx.MockTransport(provider)))
     uvicorn.run(main.app,host='127.0.0.1',port=8014)
 
 
@@ -89,9 +101,18 @@ def main():
                         assert page.locator('#category-breakdown img').count()==0
                         page.locator('#category-name').fill('장기·배당');page.locator('#category-save').click()
                         page.wait_for_function("document.querySelector('#category-breakdown').textContent.includes('장기·배당')")
-                        page.locator('#dividend-investment').fill('1000000');page.locator('#dividend-yield').fill('4')
-                        page.locator('#dividend-currency').select_option('KRW');page.locator('#dividend-tax').fill('0')
-                        page.locator('#dividend-price').fill('');page.locator('#dividend-frequency').select_option('4')
+                        page.locator('#dividend-symbol').fill('NODATA')
+                        page.locator('#dividend-lookup').click()
+                        page.wait_for_function("document.querySelector('#dividend-message').textContent.includes('자료가 없습니다')")
+                        assert page.locator('#dividend-results article').count()==0
+                        assert page.locator('#dividend-yield').input_value()==''
+                        page.locator('#dividend-stock').select_option('005930')
+                        page.wait_for_function("document.querySelector('#dividend-yield').value==='4'")
+                        assert page.locator('#dividend-yield').get_attribute('readonly') is not None
+                        page.locator('#dividend-investment').fill('1000000')
+                        assert page.locator('#dividend-currency').input_value()=='KRW'
+                        page.locator('#dividend-tax').fill('0')
+                        page.locator('#dividend-frequency').select_option('4')
                         page.locator('#dividend-form button[type=submit]').click()
                         page.wait_for_function("document.querySelector('#dividend-results').textContent.includes('40,000')")
                         page.locator('#dividend-save').click()

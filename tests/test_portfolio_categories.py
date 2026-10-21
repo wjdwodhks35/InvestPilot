@@ -15,6 +15,7 @@ from app.auth import AuthStore, AuthSettings, install_auth
 from app.engine import Engine
 from app.portfolio import breakdown, exchange_rate
 from app.dividends import DividendScenario, estimate
+from app.dividend_market import DividendMarketQuote
 
 
 def fx():
@@ -70,26 +71,32 @@ def test_categories_concurrent_and_persistent(tmp_path):
     assert first.assign_categories(['AAPL','MSFT'],'장기') == Engine(path).categories()
 
 
-def test_dividend_assumptions_whole_shares_and_remainder():
-    scenario=DividendScenario(investment='1000',currency='USD',annual_yield_pct='4',assumed_tax_pct='10',payments_per_year=4,share_price='300')
-    result=estimate(scenario,fx());usd=result['converted'][1]
+def quote(symbol='AAPL',currency='USD',rate='4',price='300'):
+    return DividendMarketQuote(symbol=symbol,provider_symbol=symbol,currency=currency,
+        annual_yield_pct=rate,share_price=price,fetched_at=datetime.now(timezone.utc).isoformat())
+
+
+def test_dividend_market_yield_whole_shares_and_remainder():
+    scenario=DividendScenario(symbol='AAPL',investment='1000',currency='USD',assumed_tax_pct='10',payments_per_year=4)
+    result=estimate(scenario,quote(),fx());usd=result['converted'][1]
     assert result['shares']=='3' and usd['unspent']=='100'
     assert usd['annual_gross']=='36' and usd['annual_net']=='32.4'
     assert usd['monthly_average_net']=='2.7' and usd['per_payment_net']=='8.1'
     assert result['converted'][0]['annual_gross']=='50400'
-    assert estimate(scenario)['converted'][0]['annual_net'] is None
+    assert estimate(scenario,quote())['converted'][0]['annual_net'] is None
 
 
 def test_dividend_too_small_zero_yield_and_fractional():
-    s=DividendScenario(investment='100',currency='USD',annual_yield_pct='5',share_price='300')
-    assert estimate(s)['shares']=='0' and estimate(s)['converted'][1]['annual_gross']=='0'
+    s=DividendScenario(symbol='AAPL',investment='100',currency='USD')
+    assert estimate(s,quote(rate='5'))['shares']=='0'
     s=s.model_copy(update={'fractional':True})
-    # Repeating Decimal division can have a final-place roundoff; display rounds only at the edge.
-    assert abs(Decimal(estimate(s)['converted'][1]['annual_gross'])-5)<Decimal('1e-24')
-    assert estimate(DividendScenario(investment='100',currency='KRW',annual_yield_pct=0))['converted'][0]['annual_gross']=='0'
-    for change in [{'investment':'NaN'},{'annual_yield_pct':-1},{'assumed_tax_pct':101},{'share_price':0}]:
+    assert Decimal(estimate(s,quote(rate='5'))['converted'][1]['annual_gross'])==5
+    assert estimate(s,quote(rate='0',price=None))['converted'][1]['annual_gross']=='0'
+    for change in [{'investment':'NaN'},{'annual_yield_pct':4},{'assumed_tax_pct':101},{'share_price':1}]:
         with pytest.raises(ValidationError):
-            DividendScenario(**({'investment':100,'currency':'KRW','annual_yield_pct':4}|change))
+            DividendScenario(**({'symbol':'AAPL','investment':100,'currency':'USD'}|change))
+    with pytest.raises(ValueError):
+        estimate(s,quote(currency='KRW'))
 
 
 @pytest.fixture
@@ -108,6 +115,9 @@ def platform(tmp_path,monkeypatch):
     monkeypatch.setattr(main,'engine',Scoped(runtime,'engine'))
     monkeypatch.setattr(main,'account_runtime',runtime)
     monkeypatch.setattr(main,'broker_accounts',manager)
+    async def market_lookup(symbol):
+        return quote(symbol=symbol,currency='KRW' if symbol.isdigit() else 'USD',price=None)
+    monkeypatch.setattr(main,'dividend_market',SimpleNamespace(lookup=market_lookup))
     store=AuthStore(tmp_path/'auth.db',database_url='')
     store.configure('admin','test-password-12345');store.add_user('other','test-password-12345')
     app=FastAPI()
@@ -126,7 +136,7 @@ def platform(tmp_path,monkeypatch):
 def test_saved_categories_and_dividends_isolated_across_accounts(platform):
     app,auth,runtime,manager=platform
     origin={'Origin':'http://testserver'}
-    scenario=dict(investment='1000000',currency='KRW',annual_yield_pct='4',assumed_tax_pct='0',payments_per_year=4,fractional=False)
+    scenario=dict(symbol='005930',investment='1000000',currency='KRW',assumed_tax_pct='0',payments_per_year=4,fractional=False)
     with TestClient(app) as client:
         assert client.get('/api/broker/dividends/scenario').status_code==401
         def login(user):
@@ -137,6 +147,7 @@ def test_saved_categories_and_dividends_isolated_across_accounts(platform):
         assert client.get('/api/broker/exchange-rate').json()['latest']['valid'] is True
         assert client.get('/api/broker/breakdown').json()['converted'][0]['profit']=='-22000'
         assert client.put('/api/broker/dividends/scenario',headers=origin,json=scenario).json()['converted'][0]['annual_gross']=='40000'
+        assert client.post('/api/broker/dividends/calculate',headers=origin,json={**scenario,'annual_yield_pct':'99'}).status_code==422
         assert client.put('/api/broker/categories/batch',headers=origin,json={'symbols':['AAPL'],'category':'   '}).status_code==400
         login('other')
         assert client.get('/api/broker/breakdown').json()['assignments']=={}
@@ -147,6 +158,9 @@ def test_saved_categories_and_dividends_isolated_across_accounts(platform):
         login('admin')
         assert client.get('/api/broker/breakdown').json()['assignments']['AAPL']=='내 장기투자'
         assert client.get('/api/broker/dividends/scenario').json()['assumptions']['investment']=='1000000'
+        runtime.items['owner']['engine'].dividend_scenario({'investment':'1000','annual_yield_pct':'99'})
+        legacy=client.get('/api/broker/dividends/scenario').json()
+        assert legacy['status']=='needs_lookup' and legacy['market'] is None and legacy['converted']==[]
     assert Engine(runtime.items['owner']['engine'].path).categories()['AAPL']=='내 장기투자'
 
 

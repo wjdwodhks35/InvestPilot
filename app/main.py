@@ -304,33 +304,63 @@ async def market_refresh(data:MarketRefresh,request:Request):
 
 
 from app.dividends import DividendScenario, estimate as dividend_estimate
+from app.dividend_market import DividendMarket, DividendMarketQuote, DividendUnavailable
+dividend_market = DividendMarket()
 
 
-def dividend_result(data, request):
+def dividend_result(data, market, request):
     item = broker_accounts.get(request_user(request))
     cached = item.get('portfolio_fx')
     if cached is None:
         history = engine.portfolio_fx()
         cached = history[-1] if history else None
-    return dividend_estimate(data, fx=cached)
+    try:
+        return dividend_estimate(data, market, fx=cached)
+    except ValueError:
+        raise HTTPException(409, '종목의 통화와 조회된 배당 데이터 유효시간을 확인하세요.') from None
+
+
+async def lookup_dividend(symbol):
+    try:
+        return await dividend_market.lookup(symbol)
+    except DividendUnavailable as exc:
+        raise HTTPException(409, str(exc)) from None
+
+
+@app.get('/api/broker/dividends/quote/{symbol}')
+async def dividend_quote(symbol: str):
+    return (await lookup_dividend(symbol)).model_dump(mode='json')
 
 
 @app.post('/api/broker/dividends/calculate')
-def calculate_dividends(data: DividendScenario, request: Request):
-    return dividend_result(data, request)
+async def calculate_dividends(data: DividendScenario, request: Request):
+    return dividend_result(data, await lookup_dividend(data.symbol), request)
 
 
 @app.put('/api/broker/dividends/scenario')
-def save_dividend_scenario(data: DividendScenario, request: Request):
-    result = dividend_result(data, request)
-    engine.dividend_scenario(data.model_dump(mode='json'))
+async def save_dividend_scenario(data: DividendScenario, request: Request):
+    market = await lookup_dividend(data.symbol)
+    result = dividend_result(data, market, request)
+    engine.dividend_scenario({'request':data.model_dump(mode='json'), 'market':market.model_dump(mode='json')})
     return result
 
 
 @app.get('/api/broker/dividends/scenario')
 def get_dividend_scenario(request: Request):
     saved = engine.dividend_scenario()
-    return dividend_result(DividendScenario.model_validate(saved), request) if saved else None
+    if not saved:
+        return None
+    try:
+        data = DividendScenario.model_validate(saved['request'])
+        market = DividendMarketQuote.model_validate(saved['market'])
+        if market.fresh():
+            return dividend_result(data, market, request)
+        return dict(assumptions=data.model_dump(mode='json'),market=None,converted=[],status='needs_lookup',
+                    note='저장된 배당 데이터가 오래되었습니다. 종목 배당 정보를 다시 조회하세요.')
+    except (ValueError, KeyError, TypeError):
+        # Legacy user-entered yields are not silently reused as market data.
+        return dict(assumptions=None,market=None,converted=[],status='needs_lookup',
+                    note='기존 직접 입력 배당률은 사용하지 않습니다. 종목을 선택해 배당 정보를 조회하세요.')
 
 
 @app.get('/api/broker/exchange-rate')
