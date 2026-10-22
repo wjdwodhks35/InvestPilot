@@ -66,9 +66,13 @@ def main():
             assert '테스트 종목 2' in page.locator('#stock-title').inner_text()
             assert '대기' in page.locator('#return-chart').inner_text()
             assert '예측 수집 대기' in page.locator('#prediction-cards').inner_text()
+            page.screenshot(path=str(artifacts/'charts-desktop.png'),full_page=True)
+            page.set_viewport_size({'width':390,'height':844})
+            page.screenshot(path=str(artifacts/'charts-mobile.png'),full_page=True)
+            page.set_viewport_size({'width':1440,'height':1080})
             response['prices']={}
             page.get_by_role('button',name='새로고침 ↻').click()
-            page.wait_for_function("document.getElementById('price-chart').textContent.includes('가격 이력이 없습니다')")
+            page.wait_for_function("document.getElementById('price-chart').textContent.includes('조회 기록이 없습니다.')")
             assert page.locator('#price-notes').inner_text()==''
             assert '상승 +2.50%' in page.locator('#prediction-cards').inner_text()
             page.screenshot(path=str(artifacts/'desktop.png'),full_page=True)
