@@ -3,6 +3,7 @@
   let dirty = false, sequence = 0, quoteSequence = 0;
   const fields = {investment:'dividend-investment',currency:'dividend-currency',assumed_tax_pct:'dividend-tax',payments_per_year:'dividend-frequency'};
   function message(value) {get('dividend-message').textContent=value;}
+  function describeAssumptions(){get('dividend-assumptions').textContent='입력 가정: 세율 '+get('dividend-tax').value+'% · 연 '+get('dividend-frequency').value+'회 균등 지급 · '+(get('dividend-fractional').checked?'소수점 매수':'정수 매수');}
   function values() {
     const result=Object.fromEntries(Object.entries(fields).map(([key,id])=>[key,get(id).value]));
     result.payments_per_year=Number(result.payments_per_year);
@@ -23,6 +24,7 @@
   function display(report) {
     const container=get('dividend-results');container.replaceChildren();
     market(report.market);
+    describeAssumptions();
     for(const view of report.converted) {
       const box=document.createElement('article');box.className='portfolio-total';
       const h=document.createElement('h3');h.textContent=view.currency+' 예상 배당';box.append(h);
@@ -53,7 +55,7 @@
       display(result);message(save?'내 계정에 종목과 투자 조건을 저장했습니다.':'조회한 종목의 예상 배당률로 계산했습니다.');
     } catch(error){if(current===sequence){market(null);message(error.message);}}
   }
-  get('dividend-form').oninput=()=>{dirty=true;sequence++;get('dividend-results').replaceChildren();};
+  get('dividend-form').oninput=()=>{dirty=true;sequence++;get('dividend-results').replaceChildren();describeAssumptions();};
   get('dividend-symbol').oninput=()=>{quoteSequence++;market(null);};
   get('dividend-form').onsubmit=event=>{event.preventDefault();submit(false);};
   get('dividend-save').onclick=()=>submit(true);
@@ -81,11 +83,13 @@
           get('dividend-fractional').checked=saved.assumptions.fractional;
           get('dividend-symbol').value=saved.assumptions.symbol;
         }
+        describeAssumptions();
         if(saved.status==='available')display(saved);
         else {market(null);get('dividend-note').textContent=saved.note;}
         message(saved.status==='available'?'저장된 종목과 투자 조건을 불러왔습니다.':saved.note);
       }
     } catch(error){message(error.message);}
   }
+  describeAssumptions();
   load();
 })();
