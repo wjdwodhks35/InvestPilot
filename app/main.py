@@ -1,6 +1,6 @@
 import os
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 from dotenv import load_dotenv
 load_dotenv()
 from pathlib import Path
@@ -17,13 +17,25 @@ from app.experiments.ai_paper import Wallet, OllamaExperiment, Snapshot
 from app.settings import SettingsStore, apply_config, create_settings_router, BrokerAccounts, request_user, connection_error
 from app.broker import TossBroker
 from app.integrations import NewsService, analyze, news_id
+from app.collection import Collector
 
 @asynccontextmanager
 async def lifespan(app):
+    async with AsyncExitStack() as stack:
+        if mcp_component is not None:
+            await stack.enter_async_context(mcp_component.app.router.lifespan_context(mcp_component.app))
+        await stack.enter_async_context(web_lifespan(app))
+        yield
+
+
+@asynccontextmanager
+async def web_lifespan(app):
     tasks=[asyncio.create_task(ai_experiment.loop(ai_snapshot))]
-    if news_service.feeds: tasks.append(asyncio.create_task(news_service.loop()))
-    await broker_accounts.start()
-    try: yield
+    if collector.enabled: tasks.append(asyncio.create_task(collector.loop()))
+    elif news_service.feeds: tasks.append(asyncio.create_task(news_service.loop()))
+    try:
+        await broker_accounts.start()
+        yield
     finally:
         await broker_accounts.stop()
         for task in account_runtime.tasks.values(): task.cancel()
@@ -40,6 +52,7 @@ app = FastAPI(title='InvestPilot', version='0.2.0', lifespan=lifespan)
 app.include_router(experiments_router)
 engine = Engine(os.environ.get('INVESTPILOT_DB','data/investpilot.db'))
 news_service = NewsService(engine)
+collector = Collector(news_service=news_service)
 broker = TossBroker(engine)
 settings_store=SettingsStore()
 broker_settings_lock=asyncio.Lock()
@@ -188,6 +201,8 @@ async def refresh_holdings(request:Request):
         item=broker_accounts.get(request_user(request))
         async with item['lock']:
             item['broker'].holdings=await item['broker'].read('/api/v1/holdings',account=True)
+            from datetime import datetime, timezone
+            item['holdings_retrieved_at'] = datetime.now(timezone.utc).isoformat()
         return item['broker'].holdings
     except ValueError as exc: raise HTTPException(409,str(exc)) from exc
     except Exception as exc: raise HTTPException(502,connection_error(exc)) from None
@@ -208,7 +223,8 @@ def lab(): return FileResponse(static/"lab.html")
 def lab_comparison(): return FileResponse(static/'comparison.html')
 
 from app.auth import AuthSettings, AuthStore, install_auth
-install_auth(app, AuthStore(os.getenv('INVESTPILOT_AUTH_DB','data/auth.db')), AuthSettings.environment(), static)
+auth_store = AuthStore(os.getenv('INVESTPILOT_AUTH_DB','data/auth.db'))
+install_auth(app, auth_store, AuthSettings.environment(), static)
 
 class PaperSource(BaseModel):
     source: Literal['manual','toss_live']
@@ -221,17 +237,61 @@ class CategoryInput(BaseModel):
 @app.put('/api/paper/source')
 def paper_source(data:PaperSource):return engine.price_source(data.source)
 
+class CategoryBatch(BaseModel):
+    symbols: list[str] = Field(min_length=1, max_length=200)
+    category: str = Field(min_length=1, max_length=40)
+
+
+def assign_category(symbols, category):
+    import re
+    if any(not re.fullmatch(r'[A-Za-z0-9.\-]{1,20}', symbol) for symbol in symbols):
+        raise HTTPException(400, '종목 코드를 확인하세요')
+    category = category.strip()
+    if not category or any(ord(c) < 32 for c in category):
+        raise HTTPException(400, '카테고리를 입력하세요')
+    try:
+        return engine.assign_categories(list(dict.fromkeys(symbols)), category)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
 @app.put('/api/broker/categories')
 def category(data:CategoryInput):
-    values=engine.categories();values[data.symbol]=data.category.strip()
-    if not values[data.symbol]:raise HTTPException(400,'카테고리를 입력하세요')
-    if len(values)>200:raise HTTPException(400,'최대 200종목 분류를 지원합니다')
-    return engine.categories(values)
+    return assign_category([data.symbol], data.category)
+
+
+@app.put('/api/broker/categories/batch')
+def categories_batch(data:CategoryBatch):
+    return assign_category(data.symbols, data.category)
+
+
+@app.post('/api/broker/exchange-rate/refresh')
+async def portfolio_exchange_rate(request: Request):
+    from app.portfolio import exchange_rate
+    item = broker_accounts.get(request_user(request))
+    try:
+        async with item['lock']:
+            raw = await item['broker'].read('/api/v1/exchange-rate', params={'baseCurrency':'USD','quoteCurrency':'KRW'})
+            fx = exchange_rate(raw)
+            if fx is None:
+                raise ValueError('Invalid FX')
+            item['portfolio_fx'] = raw
+        engine.portfolio_fx(raw)
+        return fx
+    except Exception:
+        raise HTTPException(502, '환율을 확인하지 못했습니다. 거래통화 금액은 계속 확인할 수 있습니다.') from None
+
 
 @app.get('/api/broker/breakdown')
 def portfolio_breakdown(request:Request):
     from app.portfolio import breakdown
-    return breakdown(broker_accounts.get(request_user(request))['broker'].holdings,engine.categories())
+    item = broker_accounts.get(request_user(request))
+    cached = item.get('portfolio_fx')
+    if cached is None:
+        history = engine.portfolio_fx()
+        cached = history[-1] if history else None
+    return breakdown(item['broker'].holdings, engine.categories(),
+                     fx=cached, retrieved_at=item.get('holdings_retrieved_at'))
 
 @app.post('/api/market/refresh')
 async def market_refresh(data:MarketRefresh,request:Request):
@@ -255,3 +315,88 @@ async def market_refresh(data:MarketRefresh,request:Request):
             accepted.append(q['symbol'])
         return {'updated':accepted,'message':'시세 조회 완료' if accepted else '60초 이내 시세가 없습니다. 장 마감·거래 중단·응답 시각을 확인하세요.'}
     except Exception as exc:raise HTTPException(502,connection_error(exc)) from None
+
+
+@app.get('/api/collection/status')
+async def collection_status(request: Request):
+    if getattr(request.state, 'user_id', None) != 'owner':
+        raise HTTPException(403, '관리자만 수집 상태를 확인할 수 있습니다.')
+    from starlette.concurrency import run_in_threadpool
+    return await run_in_threadpool(collector.status)
+
+
+from app.dividends import DividendScenario, estimate as dividend_estimate
+from app.dividend_market import DividendMarket, DividendMarketQuote, DividendUnavailable
+dividend_market = DividendMarket()
+
+
+def dividend_result(data, market, request):
+    item = broker_accounts.get(request_user(request))
+    cached = item.get('portfolio_fx')
+    if cached is None:
+        history = engine.portfolio_fx()
+        cached = history[-1] if history else None
+    try:
+        return dividend_estimate(data, market, fx=cached)
+    except ValueError:
+        raise HTTPException(409, '종목의 통화와 조회된 배당 데이터 유효시간을 확인하세요.') from None
+
+
+async def lookup_dividend(symbol):
+    try:
+        return await dividend_market.lookup(symbol)
+    except DividendUnavailable as exc:
+        raise HTTPException(409, str(exc)) from None
+
+
+@app.get('/api/broker/dividends/quote/{symbol}')
+async def dividend_quote(symbol: str):
+    return (await lookup_dividend(symbol)).model_dump(mode='json')
+
+
+@app.post('/api/broker/dividends/calculate')
+async def calculate_dividends(data: DividendScenario, request: Request):
+    return dividend_result(data, await lookup_dividend(data.symbol), request)
+
+
+@app.put('/api/broker/dividends/scenario')
+async def save_dividend_scenario(data: DividendScenario, request: Request):
+    market = await lookup_dividend(data.symbol)
+    result = dividend_result(data, market, request)
+    engine.dividend_scenario({'request':data.model_dump(mode='json'), 'market':market.model_dump(mode='json')})
+    return result
+
+
+@app.get('/api/broker/dividends/scenario')
+def get_dividend_scenario(request: Request):
+    saved = engine.dividend_scenario()
+    if not saved:
+        return None
+    try:
+        data = DividendScenario.model_validate(saved['request'])
+        market = DividendMarketQuote.model_validate(saved['market'])
+        if market.fresh():
+            return dividend_result(data, market, request)
+        return dict(assumptions=data.model_dump(mode='json'),market=None,converted=[],status='needs_lookup',
+                    note='저장된 배당 데이터가 오래되었습니다. 종목 배당 정보를 다시 조회하세요.')
+    except (ValueError, KeyError, TypeError):
+        # Legacy user-entered yields are not silently reused as market data.
+        return dict(assumptions=None,market=None,converted=[],status='needs_lookup',
+                    note='기존 직접 입력 배당률은 사용하지 않습니다. 종목을 선택해 배당 정보를 조회하세요.')
+
+
+@app.get('/api/broker/exchange-rate')
+def portfolio_fx_history():
+    from app.portfolio import exchange_rate
+    history = engine.portfolio_fx()
+    last = history[-1] if history else None
+    return dict(latest=dict(rate=last['rate'],observed_at=last['observed_at'],
+                            valid_from=last['validFrom'],valid_until=last['validUntil'],
+                            valid=exchange_rate(last) is not None) if last else None,
+                history=[dict(rate=row['rate'],observed_at=row['observed_at']) for row in history],
+                note='실제 환율 조회 성공 시점에 기록한 최대 300개 관측값입니다. 전체 시장의 과거 환율이나 실시간 스트리밍이 아닙니다.')
+
+
+# Register last to dispatch MCP before cookie auth and account experiment middleware.
+from app.mcp_server import install_mcp
+mcp_component = install_mcp(app, auth_store, broker_accounts)

@@ -78,17 +78,20 @@ class BrokerAccounts:
     def __init__(self,store,owner_broker):
         self.store=store;self.owner_broker=owner_broker;self.items={};self.last_tests={};self.engine_for=lambda uid:owner_broker.engine
 
-    def get(self,user_id):
+    def get(self,user_id, *, read_only=False):
         if user_id not in self.items:
             from app.broker import TossBroker
-            broker=self.owner_broker if user_id=='owner' else TossBroker(self.engine_for(user_id))
+            broker=self.owner_broker if user_id=='owner' else TossBroker(None if read_only else self.engine_for(user_id))
             try:
                 config=self.store.load(user_id)
                 if config is not None: apply_config(broker,config)
                 elif user_id!='owner': apply_config(broker,{})
             except ValueError: apply_config(broker,{})
             self.items[user_id]=dict(broker=broker,lock=asyncio.Lock(),task=None)
-        return self.items[user_id]
+        item = self.items[user_id]
+        if not read_only and item['broker'].engine is None:
+            item['broker'].engine = self.engine_for(user_id)
+        return item
 
     async def restart(self,user_id,config):
         item=self.get(user_id)

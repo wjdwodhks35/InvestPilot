@@ -198,3 +198,35 @@ class Engine:
             if values is not None:
                 c.execute("UPDATE settings SET value=? WHERE key='categories'",(json.dumps(values,ensure_ascii=False),))
             return self.setting(c,'categories')
+
+
+    def assign_categories(self, symbols, category):
+        # Read-modify-write in one DB transaction, including concurrent app instances.
+        with self.trade_lock, self.db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            values = self.setting(c, 'categories')
+            for symbol in symbols:
+                values[symbol] = category
+            if len(values) > 200:
+                raise ValueError('최대 200종목 분류를 지원합니다')
+            c.execute("UPDATE settings SET value=? WHERE key='categories'", (json.dumps(values,ensure_ascii=False),))
+            return values
+
+    def dividend_scenario(self, value=None):
+        with self.db() as c:
+            if value is not None:
+                c.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                          ('dividend_scenario', json.dumps(value, ensure_ascii=False)))
+            row = c.execute("SELECT value FROM settings WHERE key='dividend_scenario'").fetchone()
+            return json.loads(row['value']) if row else None
+
+    def portfolio_fx(self, value=None):
+        with self.trade_lock, self.db() as c:
+            c.execute('CREATE TABLE IF NOT EXISTS portfolio_fx_history (observed_at TEXT PRIMARY KEY,payload TEXT NOT NULL)')
+            if value is not None:
+                c.execute('BEGIN IMMEDIATE')
+                observed_at = datetime.now(timezone.utc).isoformat()
+                c.execute('INSERT INTO portfolio_fx_history VALUES(?,?)', (observed_at,json.dumps(value)))
+                c.execute('DELETE FROM portfolio_fx_history WHERE observed_at NOT IN (SELECT observed_at FROM portfolio_fx_history ORDER BY observed_at DESC LIMIT 300)')
+            rows = c.execute('SELECT observed_at,payload FROM portfolio_fx_history ORDER BY observed_at').fetchall()
+            return [dict(observed_at=row['observed_at'], **json.loads(row['payload'])) for row in rows]
