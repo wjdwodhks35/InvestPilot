@@ -51,7 +51,10 @@
         const row = document.createElement('tr');
         const label = text('td', position.name + ' (' + position.symbol + ')'); label.append(text('small', position.category, 'portfolio-position-category')); row.append(label);
         row.append(text('td', position.quantity ?? '확인 필요'), text('td', ['KRW','USD'].includes(position.currency) ? money(position.last_price, position.currency) : '지원 외 통화'), text('td', money(position.cost, view.currency)), text('td', money(position.value, view.currency)));
-        const profit = document.createElement('td'); profit.append(loss(position.profit, view.currency)); row.append(profit); body.append(row);
+        const profit = document.createElement('td'); profit.append(loss(position.profit, view.currency)); row.append(profit);
+        const labels=['종목 / 카테고리','수량','현재 단가','매입 원금','평가금액','평가손익'];
+        [...row.children].forEach((cell,index)=>cell.setAttribute('data-label',labels[index]));
+        body.append(row);
       }
     }
     get('portfolio-table-caption').textContent = (filter || '전체 카테고리') + ' · ' + (mode === 'native' ? '거래통화별 금액' : mode + ' 환산 금액');

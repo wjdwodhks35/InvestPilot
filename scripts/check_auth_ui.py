@@ -73,8 +73,17 @@ def main():
                     page.reload()
                     page.wait_for_function("document.getElementById('portfolio-totals').textContent.includes('70,000')")
                     assert page.locator('.workspace-menu a[aria-current="page"]').inner_text()=='대시보드'
+                    assert not page.locator('#strategy-tools').evaluate('(node)=>node.open')
+                    assert not page.locator('#order').is_visible()
+                    assert not page.locator('#real-holdings').is_visible()
+                    assert not page.locator('#dividend-tax').is_visible()
+                    assert not page.locator('.workspace-menu a[href="/lab"]').is_visible()
+
                     assert page.evaluate("document.getElementById('real-area').compareDocumentPosition(document.getElementById('paper-area')) & Node.DOCUMENT_POSITION_FOLLOWING")
                     if width < 961:
+                        assert page.locator('.mobile-dock').is_visible()
+                        page.locator('.mobile-dock a[href="/#dividend-section"]').click()
+                        assert page.locator('.mobile-dock a[aria-current="page"]').inner_text()=='배당'
                         toggle=page.locator('#workspace-toggle')
                         assert not page.locator('#workspace-rail').is_visible()
                         toggle.click()
@@ -92,10 +101,18 @@ def main():
                     else:
                         assert page.locator('#workspace-rail').is_visible()
                         assert not page.locator('#workspace-toggle').is_visible()
+                        assert not page.locator('.mobile-dock').is_visible()
                     page.evaluate("window.scrollTo({top:0,behavior:'instant'})")
                     assert page.locator('.workspace-top').bounding_box()['y']==0
                     page.screenshot(path=str(artifacts/f'workspace-{label}.png'),full_page=False)
 
+                    page.locator('.section-nav a[href="#strategy-tools"]').click()
+                    assert page.locator('#order').is_visible()
+                    page.locator('#strategy-tools > summary').click()
+                    assert not page.locator('#order').is_visible()
+                    page.goto(origin+'/#paper-area')
+                    page.wait_for_selector('#stock-search',state='visible')
+                    assert page.locator('#strategy-tools').evaluate('(node)=>node.open')
                     page.wait_for_function("document.getElementById('live-prices').textContent.includes('삼성전자')")
                     assert '삼성전자' in page.locator('#live-prices').inner_text()
                     assert '005930' not in page.locator('#live-prices').inner_text()
@@ -111,6 +128,7 @@ def main():
                     page.wait_for_function("document.getElementById('selected-stock').textContent.includes('안랩')")
                     assert page.locator('#cash').inner_text()=='1,000,000원'
                     page.get_by_role('link',name='내 실제 계좌',exact=True).click()
+                    page.locator('#holdings-detail > summary').click()
                     assert page.locator('#real-holdings').is_visible()
                     page.locator('#paper-source').select_option('toss_live')
                     page.locator('#source-save').click()

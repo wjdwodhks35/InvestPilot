@@ -76,6 +76,9 @@ def main():
                     page.locator('#fx-close').click()
                     for width,height,label in [(1440,1100,'desktop'),(390,844,'mobile')]:
                         page.set_viewport_size({'width':width,'height':height})
+                        assert page.locator('#portfolio-positions td[data-label="평가금액"]').count()==2
+                        assert page.locator('#portfolio-positions tr').first.evaluate('(node)=>getComputedStyle(node).display')==('grid' if width<761 else 'table-row')
+                        assert page.locator('.mobile-dock').is_visible()==(width<761)
                         page.locator('#portfolio-editor').evaluate('(node)=>node.open=true')
                         page.locator('#category-symbols input[value="005930"]').check()
                         page.locator('#category-symbols input[value="AAPL"]').check()
@@ -111,8 +114,12 @@ def main():
                         assert page.locator('#dividend-yield').get_attribute('readonly') is not None
                         page.locator('#dividend-investment').fill('1000000')
                         assert page.locator('#dividend-currency').input_value()=='KRW'
+                        assert not page.locator('#dividend-tax').is_visible()
+                        page.locator('#dividend-options > summary').click()
                         page.locator('#dividend-tax').fill('0')
                         page.locator('#dividend-frequency').select_option('4')
+                        page.locator('#dividend-options > summary').click()
+                        assert '세율 0%' in page.locator('#dividend-assumptions').inner_text()
                         page.locator('#dividend-form button[type=submit]').click()
                         page.wait_for_function("document.querySelector('#dividend-results').textContent.includes('40,000')")
                         page.locator('#dividend-save').click()

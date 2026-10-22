@@ -69,7 +69,7 @@ def main():
                         page.get_by_role('button',name='연결 해제',exact=True).click()
                         page.wait_for_function("document.getElementById('message').textContent.includes('해제했습니다')")
                         page.reload();page.wait_for_function("document.getElementById('status').textContent.includes('인증정보 미설정')")
-                        page.locator('summary').click()
+                        page.locator('main section details > summary').click()
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                         page.route('**/api/settings/toss',lambda route:route.fulfill(json={'configured':True,'config_source':'environment','storage_ready':False,'storage_error':None,'client_id_set':True,'client_secret_set':True,'account_set':False,'stream_enabled':False,'connected':False}))
                         page.reload()
