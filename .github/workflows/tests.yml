@@ -54,7 +54,7 @@ jobs:
           node-version: '22'
       - run: python -m pip install -r requirements-lab.txt -r requirements-mcp.txt pytest
       - run: python -m pytest -q
-      - run: node --check app/static/settings.js && node --check app/static/comparison.js && node --check app/static/login.js && node --check app/static/auth.js && node --check app/static/us-lab.js && node --check app/static/portfolio.js && node --check app/static/dividends.js && node --check app/static/fx.js
+      - run: node --check app/static/settings.js && node --check app/static/comparison.js && node --check app/static/login.js && node --check app/static/auth.js && node --check app/static/us-lab.js && node --check app/static/portfolio.js && node --check app/static/dividends.js && node --check app/static/fx.js && node --check app/static/workspace.js
   browser:
     runs-on: ubuntu-latest
     steps:

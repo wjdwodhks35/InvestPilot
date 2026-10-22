@@ -72,6 +72,30 @@ def main():
                     page.set_viewport_size({'width':width,'height':1000})
                     page.reload()
                     page.wait_for_function("document.getElementById('portfolio-totals').textContent.includes('70,000')")
+                    assert page.locator('.workspace-menu a[aria-current="page"]').inner_text()=='대시보드'
+                    assert page.evaluate("document.getElementById('real-area').compareDocumentPosition(document.getElementById('paper-area')) & Node.DOCUMENT_POSITION_FOLLOWING")
+                    if width < 961:
+                        toggle=page.locator('#workspace-toggle')
+                        assert not page.locator('#workspace-rail').is_visible()
+                        toggle.click()
+                        assert toggle.get_attribute('aria-expanded')=='true'
+                        assert page.locator('#workspace-rail').is_visible()
+                        page.keyboard.press('Shift+Tab')
+                        assert page.locator('.workspace-menu a').last.evaluate('(node)=>node===document.activeElement')
+                        page.keyboard.press('Escape')
+                        assert toggle.get_attribute('aria-expanded')=='false'
+                        assert toggle.evaluate('(node)=>node===document.activeElement')
+                        toggle.click()
+                        page.locator('.workspace-menu a[href="/#dividend-section"]').click()
+                        assert toggle.get_attribute('aria-expanded')=='false'
+                        assert not page.locator('#workspace-rail').is_visible()
+                    else:
+                        assert page.locator('#workspace-rail').is_visible()
+                        assert not page.locator('#workspace-toggle').is_visible()
+                    page.evaluate("window.scrollTo({top:0,behavior:'instant'})")
+                    assert page.locator('.workspace-top').bounding_box()['y']==0
+                    page.screenshot(path=str(artifacts/f'workspace-{label}.png'),full_page=False)
+
                     page.wait_for_function("document.getElementById('live-prices').textContent.includes('삼성전자')")
                     assert '삼성전자' in page.locator('#live-prices').inner_text()
                     assert '005930' not in page.locator('#live-prices').inner_text()

@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>InvestPilot · 예측 비교</title><link rel="stylesheet" href="/static/comparison.css"><link rel="stylesheet" href="/static/material.css"></head>
-<body><main><nav class="appbar" aria-label="주요 메뉴"><a class="brand" href="/">Invest<span>Pilot</span></a><div class="nav-links"><a href="/">대시보드</a><a href="/lab">AI 실험실</a><a href="/lab/comparison" aria-current="page">예측 비교</a><a href="/settings">설정</a></div></nav>
+<body><link rel="stylesheet" href="/static/workspace.css"><main><nav class="appbar" aria-label="주요 메뉴"><a class="brand" href="/">Invest<span>Pilot</span></a><div class="nav-links"><a href="/">대시보드</a><a href="/lab">AI 실험실</a><a href="/lab/comparison" aria-current="page">예측 비교</a><a href="/settings">설정</a></div></nav>
 
 <header><p class="eyebrow">MODEL LAB / HISTORICAL TEST</p><h1>예측을 실제 결과와<br>나란히 확인하세요.</h1><p class="muted">국내 시총 상위 50종목 · 로지스틱 회귀와 Ollama AI의 과거 모의 테스트</p></header>
 <div id="notice" role="status" aria-live="polite">실험 자료를 불러오는 중…</div>
@@ -12,4 +12,4 @@
 <section class="panel"><div class="section-heading"><div><h2>전체 종목 비교</h2><p class="muted">방향 정답과 변화율 정답을 각각 표시합니다.</p></div><label class="search-label">종목 검색<input id="search" type="search" placeholder="종목 이름 검색"></label></div><div class="table-wrap"><table><thead><tr><th>종목</th><th>실제 변화율</th><th>로지스틱 예상</th><th>방향 / 변화율</th><th>Ollama 예상</th><th>방향 / 변화율</th></tr></thead><tbody id="rows"></tbody></table></div><p id="row-count" class="muted"></p></section>
 <details class="panel"><summary>실험 조건과 결과 해석</summary><ul id="limitations"></ul><p class="muted">확률은 상승·횡보·하락에 대한 모델의 미보정 추정치입니다. 현재 수집 진행률은 실행 상태나 완료 예정 시간을 의미하지 않습니다. 실제 주문에 연결되지 않는 연구 화면입니다.</p></details>
 <footer>InvestPilot / Model Lab <span id="updated">—</span></footer>
-</main><script src="/static/comparison.js"></script></body><script src="/static/auth.js"></script></html>
+</main><script src="/static/comparison.js"></script></body><script src="/static/workspace.js"></script><script src="/static/auth.js"></script></html>
