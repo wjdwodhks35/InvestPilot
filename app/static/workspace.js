@@ -11,7 +11,7 @@
     lab:'M9 3h6m-5 0v6l-6 10a1 1 0 0 0 1 2h14a1 1 0 0 0 1-2L14 9V3M8 14h8',
     globe:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z',
     settings:'M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8ZM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z',
-    menu:'M4 6h16M4 12h16M4 18h16', arrow:'m9 6 6 6-6 6'
+    menu:'M4 6h16M4 12h16M4 18h16', close:'M6 6l12 12M18 6 6 18', arrow:'m9 6 6 6-6 6'
   };
   function icon(key) {const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');const p=document.createElementNS(svg.namespaceURI,'path');p.setAttribute('d',paths[key]||paths.chart);svg.append(p);return svg;}
   document.body.classList.add('workspace'); main.id ||= 'workspace-main'; main.tabIndex=-1;
@@ -32,9 +32,10 @@
   document.body.dataset.workspacePage = location.pathname === '/settings' ? 'settings' : location.pathname === '/' ? 'dashboard' : 'research';
   function closeMenu(returnFocus=false){document.body.classList.remove('nav-open');toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-label','메뉴 열기');backdrop.hidden=true;if(returnFocus)toggle.focus();}
   toggle.onclick=()=>{if(document.body.classList.contains('nav-open')){closeMenu();return;}document.body.classList.add('nav-open');toggle.setAttribute('aria-expanded','true');toggle.setAttribute('aria-label','메뉴 닫기');backdrop.hidden=false;rail.querySelector('a').focus();};
+  const railClose=node('button','workspace-rail-close');railClose.type='button';railClose.setAttribute('aria-label','탐색 메뉴 닫기');railClose.append(icon('close'));rail.insertBefore(railClose,menu);railClose.onclick=()=>closeMenu(true);
   backdrop.onclick=()=>closeMenu(true);
   rail.addEventListener('click',e=>{if(e.target.closest('a'))closeMenu();});
-  document.addEventListener('keydown',e=>{if(!document.body.classList.contains('nav-open'))return;if(e.key==='Escape'){closeMenu(true);return;}if(e.key==='Tab'){const links=[...rail.querySelectorAll('a')];const first=links[0],last=links.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
+  document.addEventListener('keydown',e=>{if(!document.body.classList.contains('nav-open'))return;if(e.key==='Escape'){closeMenu(true);return;}if(e.key==='Tab'){const links=[...rail.querySelectorAll('a,button:not([disabled])')];const first=links[0],last=links.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
   window.matchMedia('(min-width: 961px)').addEventListener('change',()=>closeMenu());
   main.querySelector('.appbar')?.remove();
 })();

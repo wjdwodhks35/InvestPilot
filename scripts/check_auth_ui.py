@@ -92,7 +92,9 @@ def main():
                     else:
                         assert page.locator('#workspace-rail').is_visible()
                         assert not page.locator('#workspace-toggle').is_visible()
-                    page.screenshot(path=str(artifacts/f'workspace-{label}.png'),full_page=True)
+                    page.evaluate("window.scrollTo({top:0,behavior:'instant'})")
+                    assert page.locator('.workspace-top').bounding_box()['y']==0
+                    page.screenshot(path=str(artifacts/f'workspace-{label}.png'),full_page=False)
 
                     page.wait_for_function("document.getElementById('live-prices').textContent.includes('삼성전자')")
                     assert '삼성전자' in page.locator('#live-prices').inner_text()
