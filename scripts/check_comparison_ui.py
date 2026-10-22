@@ -51,6 +51,10 @@ def main():
             page.wait_for_function("document.getElementById('rows').children.length===50")
             assert page.locator('#price-chart svg').count()==1
             assert page.locator('#return-chart svg').count()==1
+            assert 'KRW' in page.locator('#price-chart svg').text_content()
+            assert '날짜 (년.월.일)' in page.locator('#price-chart svg').text_content()
+            assert '수익률 (%)' in page.locator('#return-chart svg').text_content()
+            assert '2026-06-01 기준 · 7일 후' in page.locator('#return-chart svg').text_content()
             assert '수집 완료' in page.locator('#notice').inner_text()
             assert page.locator('#prediction-cards article').count()==3
             assert '상승 +2.50%' in page.locator('#prediction-cards').inner_text()

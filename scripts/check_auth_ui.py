@@ -67,6 +67,7 @@ def main():
                 page.get_by_role('button',name='로그인 →').click();page.wait_for_url(origin+'/')
                 page.route('**/api/broker/holdings',lambda route:route.fulfill(json={'items':[{'symbol':'005930','name':'삼성전자','quantity':'1','averagePurchasePrice':'60000','lastPrice':'70000','currency':'KRW','profitLoss':{'rate':'0.1667'}}]}))
                 page.route('**/api/broker/breakdown',lambda route:route.fulfill(json=breakdown({'items':[{'symbol':'005930','name':'삼성전자','quantity':'1','averagePurchasePrice':'60000','lastPrice':'70000','currency':'KRW'}]},Engine(temp/'paper.db').categories())))
+                page.route('**/api/history/*',lambda route:route.fulfill(json=[{'price':60000,'at':'2026-10-08T03:00:00+00:00'},{'price':65000,'at':'2026-10-08T06:00:00+00:00'},{'price':70000,'at':'2026-10-08T07:00:00+00:00'}]))
                 page.route('**/api/market/quotes',lambda route:route.fulfill(json=[{'symbol':'005930','price':70000,'at':'2026-10-08T07:00:00+00:00'}]))
                 for width,label in [(1440,'desktop'),(390,'mobile')]:
                     page.set_viewport_size({'width':width,'height':1000})
@@ -83,6 +84,7 @@ def main():
                     if width < 961:
                         assert page.locator('.mobile-dock').is_visible()
                         page.locator('.mobile-dock a[href="/#dividend-section"]').click()
+                        page.wait_for_function("document.querySelector('.mobile-dock a[aria-current=\"page\"]')?.textContent==='배당'")
                         assert page.locator('.mobile-dock a[aria-current="page"]').inner_text()=='배당'
                         toggle=page.locator('#workspace-toggle')
                         assert not page.locator('#workspace-rail').is_visible()
@@ -127,6 +129,11 @@ def main():
                     assert page.locator('#order select[name=symbol]').input_value()=='053800'
                     page.wait_for_function("document.getElementById('selected-stock').textContent.includes('안랩')")
                     assert page.locator('#cash').inner_text()=='1,000,000원'
+                    page.wait_for_function("document.querySelectorAll('#chart circle').length===3")
+                    assert 'KRW' in page.locator('#chart').text_content() and '한국시간' in page.locator('#chart').text_content()
+                    coords=page.locator('#chart circle').evaluate_all('(nodes)=>nodes.map(n=>Number(n.getAttribute("cx")))')
+                    assert abs((coords[1]-coords[0])/(coords[2]-coords[1])-3)<.01
+
                     page.get_by_role('link',name='내 실제 계좌',exact=True).click()
                     page.locator('#holdings-detail > summary').click()
                     assert page.locator('#real-holdings').is_visible()

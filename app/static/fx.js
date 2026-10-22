@@ -8,17 +8,8 @@
     const points=state.history.filter(row=>Date.parse(row.observed_at)>=from);
     get('fx-detail').textContent=state.latest ? '1 USD = '+format(state.latest.rate)+' KRW · '+(state.latest.valid?'유효한 참고 환율':'유효기한 지난 조회값') : '아직 조회한 환율이 없습니다.';
     get('fx-chart-caption').textContent=points.length+'개 관측 · '+(state.note||'조회 기록만 표시합니다.');
-    const el=(tag,attrs,content)=>{const node=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v] of Object.entries(attrs))node.setAttribute(k,v);if(content)node.textContent=content;svg.append(node);return node;};
-    if (!points.length) {el('text',{x:360,y:140,'text-anchor':'middle',fill:'#b8c6d9'},'표시할 조회 기록이 없습니다.');return;}
-    const rates=points.map(p=>Number(p.rate)), times=points.map(p=>Date.parse(p.observed_at));
-    const min=Math.min(...rates),max=Math.max(...rates),spread=max-min||1,first=times[0],last=times.at(-1);
-    const coords=points.map((p,i)=>[last===first?360:70+(times[i]-first)/(last-first)*600,220-(Number(p.rate)-min)/spread*170]);
-    for(const value of [min,max])el('text',{x:8,y:220-(value-min)/spread*170,fill:'#b8c6d9','font-size':13},format(value));
-    el('line',{x1:70,y1:235,x2:670,y2:235,stroke:'#62738d'});
-    if(points.length>1)el('polyline',{points:coords.map(c=>c.join(',')).join(' '),fill:'none',stroke:'#64b5f6','stroke-width':3});
-    coords.forEach(([x,y],i)=>{const dot=el('circle',{cx:x,cy:y,r:4,fill:'#80cbc4'});const title=document.createElementNS(svg.namespaceURI,'title');title.textContent=new Date(points[i].observed_at).toLocaleString('ko-KR')+' · '+format(points[i].rate)+' KRW';dot.append(title);});
-    el('text',{x:70,y:265,fill:'#b8c6d9','font-size':12},new Date(first).toLocaleString('ko-KR'));
-    if(last!==first)el('text',{x:670,y:265,'text-anchor':'end',fill:'#b8c6d9','font-size':12},new Date(last).toLocaleString('ko-KR'));
+    window.investpilotCharts.line(svg,{title:'USD/KRW 환율 · 1달러당 원화 · 한국시간',points:points.map(row=>({x:Date.parse(row.observed_at),y:row.rate==null?NaN:Number(row.rate)})),yLabel:'환율 (원 / 1 USD)',tooltipUnit:'원 / 1 USD',formatY:format,color:'#8db4ff'});
+
   }
   window.fxView={async refresh(){
     state=await api('broker/exchange-rate');

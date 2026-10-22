@@ -72,6 +72,8 @@ def main():
                     page.locator('#fx-open').click()
                     page.wait_for_selector('#fx-dialog[open]')
                     page.wait_for_function("document.querySelectorAll('#fx-chart circle').length>=1")
+                    assert '원 / 1 USD' in page.locator('#fx-chart').text_content()
+                    assert '한국시간' in page.locator('#fx-chart').text_content()
                     page.locator('#fx-period').select_option('7')
                     page.locator('#fx-close').click()
                     for width,height,label in [(1440,1100,'desktop'),(390,844,'mobile')]:
