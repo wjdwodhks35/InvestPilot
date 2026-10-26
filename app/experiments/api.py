@@ -14,7 +14,9 @@ class Dataset(BaseModel):
 @router.get('/status')
 def status():
     return dict(mode='research_only', trading_connected=False, training_available=False,
-                probability_available=False, message='과거 데이터 검사용 실험 공간입니다. 학습 모델은 아직 없습니다.')
+                probability_available=False, offline_training_available=True,
+                models=['logistic', 'ollama'],
+                message='이 API는 자료 검사 전용입니다. 로지스틱 학습·Ollama 추론은 별도 PC 실험에서 실행하며 결과를 비교합니다.')
 
 @router.post('/inspect')
 def inspect_dataset(data: Dataset):
