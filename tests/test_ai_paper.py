@@ -120,3 +120,36 @@ class AiPaperTests(unittest.TestCase):
         self.assertLess(metrics['return_pct'],0)
         self.assertAlmostEqual(metrics['buy_hold_return_pct'],-10)
         self.assertGreater(metrics['sampled_max_drawdown_pct'],10)
+
+
+def test_read_only_valuation_includes_current_drawdown_without_inserting_marks(tmp_path):
+    wallet=Wallet(tmp_path/'valuation.db')
+    snapshot=Snapshot(price=10000,at=datetime.now(timezone.utc).isoformat())
+    decision=Decision(action='buy',allocation_pct=100,up_pct=60,flat_pct=10,down_pct=30,reason='합성 점검',risks='테스트')
+    wallet.apply('valuation-buy','fixture',snapshot,decision)
+    before=wallet.state(10000)
+    low=wallet.state(5000)
+    assert low['metrics']['sampled_max_drawdown_pct']>50
+    assert low['metrics']['recorded_steps']==before['metrics']['recorded_steps']==1
+    assert low['history']==before['history']
+    # A read reflects current risk, but does not fabricate a persisted observation.
+    assert wallet.state(10000)['metrics']['sampled_max_drawdown_pct']<1
+
+
+def test_ai_state_api_reports_current_loss_and_keeps_decisions_read_only(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.experiments.ai_api import create_ai_router
+    wallet=Wallet(tmp_path/'integration.db')
+    quote=Snapshot(price=10000,at=datetime.now(timezone.utc).isoformat(),source='toss_live')
+    wallet.apply('integration-buy','fixture',quote,Decision(action='buy',allocation_pct=100,up_pct=60,flat_pct=10,down_pct=30,reason='테스트',risks='테스트'))
+    experiment=OllamaExperiment(wallet)
+    app=FastAPI();app.include_router(create_ai_router(experiment,lambda:quote.model_copy(update={'price':5000})))
+    with TestClient(app) as client:
+        for _ in range(2):
+            response=client.get('/api/experiments/ai/state')
+            assert response.status_code==200
+            state=response.json()['wallet']
+            assert state['metrics']['sampled_max_drawdown_pct']>50
+            assert state['metrics']['recorded_steps']==1
+            assert len(state['history'])==1

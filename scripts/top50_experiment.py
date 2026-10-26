@@ -22,10 +22,8 @@ import httpx
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, model_validator, create_model
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
 
+from app.experiments.logistic import fit_past_returns
 from app.experiments.scoring import score_forecast
 from app.experiments.training import features, parse_naver, LABELS, FEATURES
 
@@ -131,30 +129,13 @@ def feature_matrix(symbol, peers, past):
     return result
 
 
-def train_past(symbol, peers, past, horizon):
+def train_past(symbol, peers, past, horizon, *, matrix=None):
     target = past[symbol]
-    x = feature_matrix(symbol, peers, past)
-    dates = pd.to_datetime(target.date)
-    end = dates.searchsorted(dates.shift(-1) + pd.Timedelta(days=horizon))
-    usable = (end < len(target)) & x.notna().all(axis=1).to_numpy()
-    indices = np.flatnonzero(usable)
-    if len(indices) < 100 or not np.isfinite(x.iloc[-1]).all():
-        return {'status': 'insufficient_history'}
-    returns = target.close.iloc[end[indices]].to_numpy() / target.close.iloc[indices].to_numpy() - 1
-    y = np.where(returns > 0, 2, np.where(returns < 0, 0, 1))
-    if len(set(y)) < 2:
-        return {'status': 'insufficient_classes'}
-    model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, random_state=42))
-    model.fit(x.iloc[indices], y)
-    probabilities = np.zeros(3)
-    probabilities[model[-1].classes_] = model.predict_proba(x.iloc[[-1]])[0]
-    means = np.array([returns[y == cls].mean() if (y == cls).any() else 0 for cls in range(3)])
-    return {'status': 'ok', 'probabilities': dict(zip(LABELS, map(float, probabilities))),
-            'prediction': LABELS[int(probabilities.argmax())],
-            'expected_return_pct': float(probabilities @ means * 100), 'train_rows': len(indices),
-            'latest_label_date': str(target.iloc[end[indices[-1]]].date),
-            'feature_names': list(x.columns), 'method': 'StandardScaler + logistic; target and same past-selected peers; uncalibrated',
-            'return_estimator': 'Probability-weighted past-only class mean returns'}
+    x = feature_matrix(symbol, peers, past) if matrix is None else matrix
+    result = fit_past_returns(target, x, horizon)
+    if result['status'] != 'ok': return result
+    return {**result, 'feature_names': list(x.columns),
+            'method': 'StandardScaler + logistic; target and same past-selected peers; uncalibrated'}
 
 
 def actual_result(frame, test_date, horizon):
@@ -186,9 +167,10 @@ def prepare(root, test_date, batch_size):
         peers = related_symbols(symbol, past)
         inputs.append({'symbol': symbol, 'name': stock['name'], 'target': compact_stats(past[symbol]),
             'related_stocks': [{**peer, **compact_stats(past[peer['symbol']])} for peer in peers]})
+        matrix = feature_matrix(symbol, peers, past)
         for horizon in HORIZONS:
             evaluations.append({'symbol': symbol, 'name': stock['name'], 'test_date': test_date, 'days': horizon,
-                'logistic': train_past(symbol, peers, past, horizon),
+                'logistic': train_past(symbol, peers, past, horizon, matrix=matrix),
                 'actual': actual_result(frames[symbol], test_date, horizon)})
         print(json.dumps({'prepared': symbol}, ensure_ascii=False), flush=True)
     directory = root / test_date

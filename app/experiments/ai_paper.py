@@ -66,13 +66,17 @@ class Wallet:
             w['pnl']=w['equity']-w['initial'] if price else None
             w['mode']='paper_only';w['fractional_simulation']=True
             w['history']=[dict(r) for r in c.execute('SELECT * FROM decisions ORDER BY at DESC,id DESC LIMIT 30')]
-            marks=[dict(r) for r in c.execute('SELECT * FROM equity_marks ORDER BY id')]
+            count=c.execute('SELECT COUNT(*) FROM equity_marks').fetchone()[0]
+            first=c.execute('SELECT price FROM equity_marks ORDER BY id LIMIT 1').fetchone()
+            marks=c.execute('SELECT equity FROM equity_marks ORDER BY id')
             peak=w['initial'];drawdown=0
             for mark in marks:
                 peak=max(peak,mark['equity']);drawdown=max(drawdown,1-mark['equity']/peak)
-            w['metrics']={'recorded_steps':len(marks),'sampled_max_drawdown_pct':drawdown*100,
+            if w['equity'] is not None:
+                drawdown=max(drawdown,1-w['equity']/max(peak,w['equity']))
+            w['metrics']={'recorded_steps':count,'sampled_max_drawdown_pct':drawdown*100,
                 'return_pct':(w['equity']/w['initial']-1)*100 if w['equity'] is not None else None,
-                'buy_hold_return_pct':(price/marks[0]['price']-1)*100 if marks and price else None,
+                'buy_hold_return_pct':(price/first['price']-1)*100 if first and price else None,
                 'benchmark_note':'동일 첫 관측가격 대비 보유 수익률, 비용 미반영. 수동 가격 테스트는 실제 투자 성능이 아닙니다.'}
             return w
     def pause(self,paused):

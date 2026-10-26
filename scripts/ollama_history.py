@@ -9,15 +9,12 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
-import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
 
 from app.experiments.ai_api import PEERS, technical_context
 from app.experiments.training import features, LABELS
+from app.experiments.logistic import fit_past_returns
 from app.experiments.scoring import score_forecast, direction
 from app.experiments.research_agent import analyze
 
@@ -86,31 +83,13 @@ def build_input(root, test_date):
 
 def logistic_before(target, test_date, days):
     """Fit solely on labels whose endpoint is strictly before the test date."""
-    x = features(target)
-    dates = pd.to_datetime(target.date)
-    # Historical samples decide on the next observation date using the prior
-    # close, matching the same reference-price/decision-date convention.
-    endpoints = dates.searchsorted(dates.shift(-1) + pd.Timedelta(days=days))
-    usable = (endpoints < len(target)) & x.notna().all(axis=1).to_numpy()
-    indices = np.flatnonzero(usable)
-    if len(indices) < 100:
-        return {'status': 'insufficient_training_data'}
-    returns = target.close.iloc[endpoints[indices]].to_numpy() / target.close.iloc[indices].to_numpy() - 1
-    y = np.where(returns > 0, 2, np.where(returns < 0, 0, 1))
-    if len(set(y)) != 3:
-        return {'status': 'missing_training_class'}
-    model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, random_state=42))
-    model.fit(x.iloc[indices], y)
-    p = model.predict_proba(x.iloc[[-1]])[0]
-    # Simple historical class-mean return estimate; not a separately trained regressor.
-    mean_returns = np.array([returns[y == cls].mean() for cls in range(3)])
-    expected_return_pct = float(p @ mean_returns * 100)
-    return {'status': 'ok', 'probabilities': dict(zip(LABELS, map(float, p))),
-            'prediction': LABELS[int(p.argmax())], 'train_rows': len(indices),
-            'expected_return_pct': expected_return_pct,
-            'return_estimator': 'Probability-weighted past-only class mean returns',
-            'last_training_label_date': str(target.iloc[endpoints[indices[-1]]].date),
-            'method': 'Past-only expanding-window logistic regression; uncalibrated; target-price features only'}
+    result = fit_past_returns(target, features(target), days, require_all_classes=True)
+    if result['status'] != 'ok':
+        return {'status': {'insufficient_history': 'insufficient_training_data',
+                           'insufficient_classes': 'missing_training_class'}[result['status']]}
+    result['last_training_label_date'] = result.pop('latest_label_date')
+    result['method'] = 'Past-only expanding-window logistic regression; uncalibrated; target-price features only'
+    return result
 
 
 def evaluate(full, context, days):

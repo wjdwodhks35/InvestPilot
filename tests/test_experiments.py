@@ -21,3 +21,15 @@ class LabTests(unittest.TestCase):
         row='2025-01-02T16:00:00+09:00,053800,10000,100,,'
         self.assertEqual(self.inspect(row+'\n'+row).status_code,422)
         self.assertEqual(self.inspect(row.replace('10000','nan')).status_code,422)
+
+
+def test_lab_status_distinguishes_inspection_api_and_offline_model_experiments():
+    with TestClient(app) as client:
+        response=client.get('/api/experiments/status')
+        assert response.status_code==200
+        status=response.json()
+        assert status['models']==['logistic','ollama']
+        assert status['offline_training_available'] is True
+        assert status['trading_connected'] is False
+        assert status['training_available'] is False
+        assert '학습 모델은 아직 없습니다' not in status['message']
